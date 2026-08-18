@@ -1,0 +1,83 @@
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+[project]
+# Distribution name matches the app id and the repo it promotes to
+# (rudi193-cmd/homestead-health), the way law-gazelle promoted to
+# homestead-law. The import name is `homestead_health` — see
+# [tool.hatch.build.targets.wheel].
+name = "homestead-health"
+# The git tag is the single source of truth — see [tool.hatch.version]. The
+# version is deliberately NOT a literal here, mirroring the engine and the two
+# promoted siblings: a number nothing derives is a number that goes stale.
+# hatch-vcs derives it from the tag instead, so there is exactly one place a
+# release number is decided. The `version = "0.0.1"` literal the build carried
+# while it incubated in the store is gone: this tree's tags are now this app's.
+dynamic = ["version"]
+description = "Homestead · Health — family health records the household holds itself. Module three on Homestead · Affairs, pinning homestead.keep."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+keywords = ["health", "records", "household", "homestead", "local-first"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Topic :: Office/Business",
+]
+
+# I-27: declared dependencies are TRUE, and there is exactly one.
+#
+# `homestead-affairs` is the engine — homestead.keep, the record/deadline/
+# evidence core every module on the face pins. "A module cannot pin an engine
+# that does not exist"; this line is that pin. The floor is the release this
+# seat was built against (0.1.0, the engine's first release).
+#
+# The cap is `<0.2`, and it is deliberately TIGHTER than the two promoted
+# siblings' `<1.0`. Health carries the L4/L5 medical rungs, and the engine's
+# rung/serve surface is exactly the dependency that decides what renders — so
+# this app does not widen to `<1.0` on faith. The cap is revisited against the
+# engine's releases, one minor at a time, not by copying a sibling's range.
+#
+# The engine is a pinned dependency, not territory: do not modify it, do not
+# propose changes to it from here, and do not generalize app logic into it.
+# Upstream changes are issues on rudi193-cmd/homestead.
+dependencies = ["homestead-affairs>=0.1.0,<0.2"]
+
+[project.optional-dependencies]
+# `pyyaml` and `tomli` are for tests/test_invariants_release.py, which reads the
+# release workflows and pyproject to check the four release files agree. It
+# importorskips on yaml, so leaving pyyaml out would turn those checks into a
+# silent skip — the exact failure mode they exist to catch. Dev-only, so the
+# runtime `dependencies` list above is untouched.
+dev = ["pytest>=8.0", "pyyaml", "tomli; python_version<'3.11'"]
+
+[project.urls]
+Homepage = "https://github.com/rudi193-cmd/homestead-health"
+Repository = "https://github.com/rudi193-cmd/homestead-health"
+Issues = "https://github.com/rudi193-cmd/homestead-health/issues"
+Changelog = "https://github.com/rudi193-cmd/homestead-health/blob/main/CHANGELOG.md"
+Design = "https://github.com/rudi193-cmd/homestead/blob/main/docs/PLAN-homestead-health.md"
+
+[tool.hatch.version]
+# Derived from the git tag (hatch-vcs). At an exact tag `vX.Y.Z` the version is
+# X.Y.Z; off-tag builds get a `.devN+g<sha>` suffix that PyPI rejects, so an
+# accidental publish from an untagged commit fails loudly instead of shipping
+# something mislabelled. CI must check out with `fetch-depth: 0` — the default
+# shallow checkout carries no tags and the derived version would be wrong.
+#
+# `.release-please-manifest.json` anchors the current version at 0.1.0 (the
+# first promoted release), and release-please cuts the tags from the commits
+# (`release-type: simple`, release-please-config.json) rather than anyone
+# tagging by hand — PyPI never lets a version be reused.
+source = "vcs"
+
+[tool.hatch.build.targets.wheel]
+packages = ["homestead_health"]
+
+[tool.pytest.ini_options]
+# I-28: bare `pytest -q` must work. Nothing shadows the live suite.
+testpaths = ["tests"]
+norecursedirs = ["_archived", "build", "dist", ".git"]

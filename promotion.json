@@ -1,0 +1,11 @@
+{
+  "app_id": "homestead-health",
+  "author": "vishwakarma",
+  "verified_by": "sean",
+  "repo_url": "https://github.com/rudi193-cmd/homestead-health",
+  "host": "safe-app-store",
+  "core_module": "homestead_health",
+  "semantic_seam": "homestead_health.reference_lane:Reader",
+  "host_repointed": true,
+  "major": "python"
+}
