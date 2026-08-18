@@ -68,10 +68,11 @@ Design = "https://github.com/rudi193-cmd/homestead/blob/main/docs/PLAN-homestead
 # something mislabelled. CI must check out with `fetch-depth: 0` — the default
 # shallow checkout carries no tags and the derived version would be wrong.
 #
-# `.release-please-manifest.json` anchors the current version at 0.1.0 (the
-# first promoted release), and release-please cuts the tags from the commits
-# (`release-type: simple`, release-please-config.json) rather than anyone
-# tagging by hand — PyPI never lets a version be reused.
+# No tag exists yet: this repo has never published. `.release-please-manifest.json`
+# anchors the baseline at 0.0.1 (what the code called itself while it incubated in
+# the store), and release-please cuts the first real tag (v0.1.0, the promotion)
+# from the commits (`release-type: simple`, release-please-config.json) rather than
+# anyone tagging by hand — PyPI never lets a version be reused.
 source = "vcs"
 
 [tool.hatch.build.targets.wheel]
