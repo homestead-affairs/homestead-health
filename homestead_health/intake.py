@@ -33,7 +33,7 @@ class Extracted:
     field: str | None = None
 
 
-# ── vaccine names (closed set from reference.py) ────────────────────────
+# ── vaccine names (closed set from reference.py) ────────────────────
 
 _VACCINE_NAMES: tuple[str, ...] = SCHEDULE.vaccines()
 
@@ -104,19 +104,19 @@ _PROVIDER_CLINIC = re.compile(
     r"Medical[ \t]+Group|Children'?s[ \t]+Hospital)\b"
 )
 _PROVIDER_LABEL = re.compile(
-    r"(?:Provider|Clinic|Administered[ \t]+by|Given[ \t]+at|Site)[:\s]+([A-Z][a-zA-Z'.,\- ]+?)(?:\n|$)",
+    r"(?:Provider|Clinic|Administered[ \t]+by|Given[ \t]+at|Site):?[ \t]([A-Z][a-zA-Z'.,\- ]+?)(?:\n|$)",
 )
 
 
-# ── lot number ───────────────────────────────────────────────────────────
+# ── lot number ─────────────────────────────────────────────────────────
 
 _LOT = re.compile(
-    r"(?:Lot|LOT)[ \t]*(?:#|No\.?|Number)?[:\s]+([A-Z0-9][A-Z0-9-]{2,14})\b",
+    r"(?:Lot|LOT)[ \t]*(?:#|No\.?|Number)?:?[ \t]([A-Z0-9][A-Z0-9-]{2,14})\b",
     re.IGNORECASE,
 )
 
 
-# ── dose info ────────────────────────────────────────────────────────────
+# ── dose info ──────────────────────────────────────────────────────────
 
 _DOSE_OF = re.compile(
     r"\b(?:dose|shot)[ \t]+(\d)[ \t]+(?:of|/)[ \t]+(\d)\b",
@@ -132,7 +132,7 @@ _DOSE_BOOSTER = re.compile(
 )
 
 
-# ── extraction ───────────────────────────────────────────────────────────
+# ── extraction ─────────────────────────────────────────────────────────
 
 def _valid_date(year: int, month: int, day: int) -> bool:
     return 1 <= month <= 12 and 1 <= day <= 31 and 1900 <= year <= 2100
