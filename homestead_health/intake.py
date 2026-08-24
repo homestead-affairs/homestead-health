@@ -33,7 +33,7 @@ class Extracted:
     field: str | None = None
 
 
-# ── vaccine names (closed set from reference.py) ────────────────────
+# ── vaccine names (closed set from reference.py) ──────────────────────
 
 _VACCINE_NAMES: tuple[str, ...] = SCHEDULE.vaccines()
 
@@ -69,7 +69,7 @@ _FULL_RE = re.compile(
 )
 
 
-# ── date patterns ────────────────────────────────────────────────────────
+# ── date patterns ───────────────────────────────────────────────
 
 _MONTHS: dict[str, str] = {
     "january": "01", "february": "02", "march": "03", "april": "04",
@@ -93,7 +93,7 @@ _DATE_US = re.compile(
 )
 
 
-# ── provider patterns ───────────────────────────────────────────────────
+# ── provider patterns ──────────────────────────────────────────────
 
 _PROVIDER_DR = re.compile(
     r"\b(?:Dr\.?|Doctor)[ \t]+([A-Z][a-zA-Z'-]+(?:[ \t]+[A-Z][a-zA-Z'-]+){0,2})\b"
@@ -104,11 +104,12 @@ _PROVIDER_CLINIC = re.compile(
     r"Medical[ \t]+Group|Children'?s[ \t]+Hospital)\b"
 )
 _PROVIDER_LABEL = re.compile(
-    r"(?:Provider|Clinic|Administered[ \t]+by|Given[ \t]+at|Site):?[ \t]([A-Z][a-zA-Z'.,\- ]+?)(?:\n|$)",
+    r"(?:Provider|Clinic|Administered[ \t]+by|Given[ \t]+at|Site)"
+    r":?[ \t]([A-Z][a-zA-Z'.,-]*(?:[ \t][a-zA-Z'.,-]+)*)",
 )
 
 
-# ── lot number ─────────────────────────────────────────────────────────
+# ── lot number ───────────────────────────────────────────────────────────
 
 _LOT = re.compile(
     r"(?:Lot|LOT)[ \t]*(?:#|No\.?|Number)?:?[ \t]([A-Z0-9][A-Z0-9-]{2,14})\b",
@@ -116,7 +117,7 @@ _LOT = re.compile(
 )
 
 
-# ── dose info ──────────────────────────────────────────────────────────
+# ── dose info ──────────────────────────────────────────────────────────────
 
 _DOSE_OF = re.compile(
     r"\b(?:dose|shot)[ \t]+(\d)[ \t]+(?:of|/)[ \t]+(\d)\b",
@@ -132,7 +133,7 @@ _DOSE_BOOSTER = re.compile(
 )
 
 
-# ── extraction ─────────────────────────────────────────────────────────
+# ── extraction ─────────────────────────────────────────────────────────────
 
 def _valid_date(year: int, month: int, day: int) -> bool:
     return 1 <= month <= 12 and 1 <= day <= 31 and 1900 <= year <= 2100
