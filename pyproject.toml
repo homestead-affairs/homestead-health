@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 # Distribution name matches the app id and the repo it promotes to
-# (rudi193-cmd/homestead-health), the way law-gazelle promoted to
+# (homestead-affairs/homestead-health), the way law-gazelle promoted to
 # homestead-law. The import name is `homestead_health` — see
 # [tool.hatch.build.targets.wheel].
 name = "homestead-health"
@@ -43,7 +43,7 @@ classifiers = [
 #
 # The engine is a pinned dependency, not territory: do not modify it, do not
 # propose changes to it from here, and do not generalize app logic into it.
-# Upstream changes are issues on rudi193-cmd/homestead.
+# Upstream changes are issues on homestead-affairs/homestead.
 dependencies = ["homestead-affairs>=0.1.0,<0.2"]
 
 [project.optional-dependencies]
@@ -56,11 +56,11 @@ dev = ["pytest>=8.0", "pyyaml", "tomli; python_version<'3.11'"]
 entity = ["nestor-meaning>=0.11.0,<1.0"]
 
 [project.urls]
-Homepage = "https://github.com/rudi193-cmd/homestead-health"
-Repository = "https://github.com/rudi193-cmd/homestead-health"
-Issues = "https://github.com/rudi193-cmd/homestead-health/issues"
-Changelog = "https://github.com/rudi193-cmd/homestead-health/blob/main/CHANGELOG.md"
-Design = "https://github.com/rudi193-cmd/homestead/blob/main/docs/PLAN-homestead-health.md"
+Homepage = "https://github.com/homestead-affairs/homestead-health"
+Repository = "https://github.com/homestead-affairs/homestead-health"
+Issues = "https://github.com/homestead-affairs/homestead-health/issues"
+Changelog = "https://github.com/homestead-affairs/homestead-health/blob/main/CHANGELOG.md"
+Design = "https://github.com/homestead-affairs/homestead/blob/main/docs/PLAN-homestead-health.md"
 
 [tool.hatch.version]
 # Derived from the git tag (hatch-vcs). At an exact tag `vX.Y.Z` the version is
