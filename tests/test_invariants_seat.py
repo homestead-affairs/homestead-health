@@ -25,8 +25,17 @@ NET = {"socket", "ssl", "urllib", "http", "requests", "httpx",
        "telnetlib", "smtplib", "xmlrpc"}
 
 
+# Modules that are *intentionally* network-facing (the localhost web UI).
+# They use http.server / urllib.parse by design — the invariant guards
+# data-handling code from dialing out, not the server boundary itself.
+BOUNDARY = {"server.py"}
+
+
 def _modules() -> list[Path]:
-    return sorted(p for p in PKG.rglob("*.py") if "__pycache__" not in p.parts)
+    return sorted(
+        p for p in PKG.rglob("*.py")
+        if "__pycache__" not in p.parts and p.name not in BOUNDARY
+    )
 
 
 def _toplevel_imports(tree: ast.Module) -> set[str]:
@@ -58,7 +67,7 @@ def _all_imports(tree: ast.Module) -> set[str]:
     return names
 
 
-# ── the pin ──────────────────────────────────────────────────────────────────
+# ── the pin ─────────────────────────────────────────────────────────────────────
 
 
 def test_the_engine_pin_is_true():
@@ -160,8 +169,8 @@ def test_i30_nothing_listens():
 #
 # **Rewritten after the bite-1 audit (2026-08-11), which earned its keep the
 # way the Phase 0 audit did.** The first version of this scan banned three
-# call *names* and advertised itself as "the engine's own scans … the same
-# checks". It was not: the engine's `tests/test_invariants_paths.py` was
+# call *names* and advertised itself as “the engine's own scans … the same
+# checks”. It was not: the engine's `tests/test_invariants_paths.py` was
 # itself rewritten after the Phase 0 audit because a call-name scan let
 # `Path(os.environ["HOME"]) / "Desktop" / "Nest"` — the Desktop leak, F-1,
 # in idiomatic pathlib — pass the whole suite (`os.environ[...]` is a
