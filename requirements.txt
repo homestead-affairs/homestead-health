@@ -3,4 +3,4 @@
 # Mirrors pyproject.toml's [project] dependencies; the store's app-tests CI
 # leg installs this file and runs the suite uninstalled (tests/conftest.py
 # makes the bare checkout importable).
-homestead-affairs>=0.1.0,<0.2
+homestead-affairs>=0.1.0,<0.3

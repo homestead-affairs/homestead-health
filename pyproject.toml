@@ -44,7 +44,7 @@ classifiers = [
 # The engine is a pinned dependency, not territory: do not modify it, do not
 # propose changes to it from here, and do not generalize app logic into it.
 # Upstream changes are issues on homestead-affairs/homestead.
-dependencies = ["homestead-affairs>=0.1.0,<0.2"]
+dependencies = ["homestead-affairs>=0.1.0,<0.3"]
 
 [project.optional-dependencies]
 # `pyyaml` and `tomli` are for tests/test_invariants_release.py, which reads the
