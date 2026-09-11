@@ -76,19 +76,41 @@ def _all_imports(tree: ast.Module) -> set[str]:
 # ── the pin ─────────────────────────────────────────────────────────────────────
 
 
-def _declared_engine_spec() -> str:
+def _dependency_block(pyproject_text: str) -> str:
+    """The body of `dependencies = [...]` in a `pyproject.toml`'s text."""
+    block = re.search(
+        r"^dependencies\s*=\s*\[(.*?)\]", pyproject_text, re.MULTILINE | re.DOTALL
+    )
+    assert block, "pyproject.toml must declare its dependencies"
+    return block.group(1)
+
+
+def _declared_engine_spec(pyproject_text: str | None = None) -> str:
     """The version specifier `pyproject.toml` declares for the engine, e.g.
     `">=0.3.0,<1.0"` — read from the file, never from the installed metadata,
-    because the whole point is to compare the two."""
-    dependency_block = re.search(
-        r"^dependencies\s*=\s*\[(.*?)\]",
-        (APP / "pyproject.toml").read_text(encoding="utf-8"),
-        re.MULTILINE | re.DOTALL,
-    )
-    assert dependency_block, "pyproject.toml must declare its dependencies"
-    pin = re.search(r'"homestead-affairs([^"]*)"', dependency_block.group(1))
+    because the whole point is to compare the two.
+
+    Takes the file's text optionally so the plant below can hand it a pin it
+    wrote itself: X7-drift-health found this parser was the one scan in this
+    file no planted-violation test ever ran.
+    """
+    if pyproject_text is None:
+        pyproject_text = (APP / "pyproject.toml").read_text(encoding="utf-8")
+    pin = re.search(r'"homestead-affairs([^"]*)"', _dependency_block(pyproject_text))
     assert pin, "the engine pin is the one declared dependency, and it is missing"
     return pin.group(1)
+
+
+def _pin_defects(spec: str) -> list[str]:
+    """What is missing from an engine pin — the check
+    `test_the_pin_has_a_floor_and_a_cap` makes, as something a plant can run
+    over a pin that is not this repo's."""
+    defects = []
+    if ">=" not in spec:
+        defects.append("floor")
+    if "<" not in spec:
+        defects.append("cap")
+    return defects
 
 
 def test_the_engine_pin_is_true():
@@ -142,8 +164,42 @@ def test_the_pin_has_a_floor_and_a_cap():
     holds the numbers to the engine actually installed.
     """
     spec = _declared_engine_spec()
-    assert ">=" in spec, f"the pin needs a floor (got {spec!r})"
-    assert "<" in spec, f"the pin needs a cap — the engine is pre-1.0 (got {spec!r})"
+    assert not _pin_defects(spec), (
+        f"the pin needs a floor and a cap — the engine is pre-1.0 (got {spec!r}, "
+        f"missing {_pin_defects(spec)})"
+    )
+
+
+def test_the_pin_parser_and_the_floor_cap_guard_fire_on_a_planted_pyproject(tmp_path):
+    """X7-drift-health: planted. `_declared_engine_spec` had no test that ever
+    handed it anything but this repo's own passing `pyproject.toml`, so a
+    parser that silently returned the wrong slice — or a floor/cap check that
+    accepted a bare `==` pin — would have stayed green forever.
+
+    Three pins written by hand: a capless one, a floorless one, and one whose
+    engine entry sits beside another dependency, so the parser is shown to
+    pick the engine's specifier and not the neighbour's.
+    """
+    capless = tmp_path / "capless.toml"
+    capless.write_text('dependencies = ["homestead-affairs>=0.11.0"]\n', encoding="utf-8")
+    assert _declared_engine_spec(capless.read_text(encoding="utf-8")) == ">=0.11.0"
+    assert _pin_defects(">=0.11.0") == ["cap"]
+
+    floorless = tmp_path / "floorless.toml"
+    floorless.write_text('dependencies = ["homestead-affairs<1.0"]\n', encoding="utf-8")
+    assert _declared_engine_spec(floorless.read_text(encoding="utf-8")) == "<1.0"
+    assert _pin_defects("<1.0") == ["floor"]
+
+    neighbour = tmp_path / "neighbour.toml"
+    neighbour.write_text(
+        'dependencies = [\n'
+        '    "holidays>=0.50,<1.0",\n'
+        '    "homestead-affairs>=0.11.0,<1.0",\n'
+        ']\n',
+        encoding="utf-8",
+    )
+    assert _declared_engine_spec(neighbour.read_text(encoding="utf-8")) == ">=0.11.0,<1.0"
+    assert _pin_defects(">=0.11.0,<1.0") == []
 
 
 def test_the_seat_imports_clean():
@@ -176,7 +232,7 @@ def test_i30_i26_nothing_imports_the_network():
     for mod in _modules():
         hits = NET & _all_imports(ast.parse(mod.read_text(encoding="utf-8")))
         if hits:
-            offenders[str(mod.relative_to(APP))] = sorted(hits)
+            offenders[mod.relative_to(APP).as_posix()] = sorted(hits)
     assert not offenders, (
         f"nothing in this module dials — H-5's fetch half and I-26. Found: {offenders}"
     )
@@ -193,20 +249,48 @@ def test_the_network_scan_sees_a_lazy_import(tmp_path):
     assert not (NET & _toplevel_imports(tree)), "and it is invisible to the top-level walk"
 
 
+#: `bind` itself is not banned, for the engine's stated tkinter reason; these
+#: names have no GUI meaning.
+LISTENS = {"listen", "serve_forever", "create_server", "ThreadingHTTPServer"}
+
+
+def _listen_calls(tree: ast.AST) -> list[tuple[int, str]]:
+    """Every call in this tree that opens an ear, however spelled."""
+    hits: list[tuple[int, str]] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            f = node.func
+            name = f.attr if isinstance(f, ast.Attribute) else getattr(f, "id", "")
+            if name in LISTENS:
+                hits.append((node.lineno, name))
+    return hits
+
+
 def test_i30_nothing_listens():
-    """No bind/listen/serve call, however spelled. `bind` itself is not
-    banned, for the engine's stated tkinter reason; these names have no GUI
-    meaning."""
-    banned = {"listen", "serve_forever", "create_server", "ThreadingHTTPServer"}
+    """No bind/listen/serve call, however spelled (I-30)."""
     offenders = []
     for mod in _modules():
-        for node in ast.walk(ast.parse(mod.read_text(encoding="utf-8"))):
-            if isinstance(node, ast.Call):
-                f = node.func
-                name = f.attr if isinstance(f, ast.Attribute) else getattr(f, "id", "")
-                if name in banned:
-                    offenders.append(f"{mod.relative_to(APP)}:{node.lineno} {name}")
+        for lineno, name in _listen_calls(ast.parse(mod.read_text(encoding="utf-8"))):
+            offenders.append(f"{mod.relative_to(APP).as_posix()}:{lineno} {name}")
     assert not offenders, f"nothing may listen. Found: {offenders}"
+
+
+def test_the_listen_scan_fires_on_every_spelling(tmp_path):
+    """X7-drift-health: planted. This scan had never fired — `server.py` is
+    exempt as the one boundary, so no module in the package has ever tripped
+    it, and a scan that only ever returns nothing is indistinguishable from a
+    scan that cannot return anything. All four spellings, including the bare
+    class name a name-scan on attributes alone would miss."""
+    probe = tmp_path / "ears.py"
+    probe.write_text(
+        "def a(s): return s.listen(5)\n"
+        "def b(s): return s.serve_forever()\n"
+        "def c(loop): return loop.create_server(None)\n"
+        "def d(): return ThreadingHTTPServer(('', 0), None)\n",
+        encoding="utf-8",
+    )
+    caught = {name for _, name in _listen_calls(ast.parse(probe.read_text(encoding="utf-8")))}
+    assert caught == LISTENS, f"the scan missed a spelling; caught only {caught}"
 
 
 # ── I-19 / I-20 · no second resolver, by any mechanism ───────────────────────
@@ -316,7 +400,7 @@ def test_i19_i20_nothing_here_reaches_home():
     offenders = []
     for mod in _modules():
         for lineno, how in _home_reaches(ast.parse(mod.read_text(encoding="utf-8"))):
-            offenders.append(f"{mod.relative_to(APP)}:{lineno} {how}")
+            offenders.append(f"{mod.relative_to(APP).as_posix()}:{lineno} {how}")
     assert not offenders, (
         "only the engine's resolver (homestead.keep.paths) may reach a home "
         f"directory. Found: {offenders}"
@@ -326,16 +410,43 @@ def test_i19_i20_nothing_here_reaches_home():
     assert importlib.util.find_spec("homestead.keep.paths") is not None
 
 
+def _expanduser_calls(tree: ast.AST) -> list[int]:
+    """Every `expanduser(...)` call in this tree, in any spelling or position."""
+    return [
+        node.lineno
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and _dotted(node.func).rsplit(".", 1)[-1] == "expanduser"
+    ]
+
+
 def test_i20_the_invisible_spelling_is_banned_everywhere():
     """`expanduser` is invisible to the store's vault-leak linter, so it is
     banned in every spelling and every position — the engine's rule, verbatim."""
     offenders = []
     for mod in _modules():
-        for node in ast.walk(ast.parse(mod.read_text(encoding="utf-8"))):
-            if isinstance(node, ast.Call) \
-                    and _dotted(node.func).rsplit(".", 1)[-1] == "expanduser":
-                offenders.append(f"{mod.relative_to(APP)}:{node.lineno}")
+        for lineno in _expanduser_calls(ast.parse(mod.read_text(encoding="utf-8"))):
+            offenders.append(f"{mod.relative_to(APP).as_posix()}:{lineno}")
     assert not offenders, f"expanduser() is invisible to the linter. Found: {offenders}"
+
+
+def test_the_expanduser_scan_fires_on_every_spelling(tmp_path):
+    """X7-drift-health: planted. Another scan with nothing in the package to
+    catch, so it had never once returned a hit. Three spellings — the
+    `os.path` one, a `Path` method, and a bare name bound by
+    `from os.path import expanduser` — because the rule is "every spelling and
+    every position" and only a plant can say whether it is."""
+    probe = tmp_path / "reaches.py"
+    probe.write_text(
+        "import os.path\n"
+        "from os.path import expanduser\n"
+        "from pathlib import Path\n"
+        "def a(): return os.path.expanduser('~')\n"
+        "def b(): return Path('~').expanduser()\n"
+        "def c(): return expanduser('~')\n",
+        encoding="utf-8",
+    )
+    assert len(_expanduser_calls(ast.parse(probe.read_text(encoding="utf-8")))) == 3
 
 
 def test_i19_no_user_directory_literals():
@@ -348,7 +459,7 @@ def test_i19_no_user_directory_literals():
             hit = segments & BANNED_SEGMENTS
             if hit:
                 offenders.append(
-                    f"{mod.relative_to(APP)}:{lineno} {value!r} ({sorted(hit)})"
+                    f"{mod.relative_to(APP).as_posix()}:{lineno} {value!r} ({sorted(hit)})"
                 )
     assert not offenders, f"user-directory literals are forbidden. Found: {offenders}"
 
@@ -378,37 +489,77 @@ def test_i19_regression_desktop_leak(tmp_path):
     assert caught, "the literal scan must catch a bare 'Desktop' segment"
 
 
+def _declared_distributions(pyproject_text: str) -> set[str]:
+    """Every distribution name `dependencies = [...]` declares, normalised."""
+    return {
+        m.lower().replace("_", "-")
+        for m in re.findall(r'"([A-Za-z0-9._-]+)', _dependency_block(pyproject_text))
+    }
+
+
+def _undeclared_imports(tree: ast.Module, declared: set[str]) -> list[str]:
+    """Every top-level import in this tree that no declared distribution ships.
+
+    The engine's ambient-dependency scan (I-27). This repo's own package and
+    the stdlib are never third-party; everything else must arrive through a
+    distribution `pyproject.toml` names, not one that happens to be installed.
+    """
+    dist_of = md.packages_distributions()
+    offenders: list[str] = []
+    for name in sorted(_toplevel_imports(tree)):
+        if name in ("homestead", "homestead_health") or name in sys.stdlib_module_names:
+            continue
+        dists = {d.lower().replace("_", "-") for d in dist_of.get(name, [])}
+        if not dists & declared:
+            offenders.append(f"{name} (ships in {sorted(dists) or 'nothing installed'})")
+    return offenders
+
+
 def test_i27_every_third_party_import_is_declared():
     """Nothing is imported that `pyproject.toml` does not name — the engine's
     ambient-dependency scan, verbatim. The engine brings `holidays`, which
     brings `python-dateutil`, which brings `six`: all three are importable
     here without being declared, which is exactly the shape this forbids."""
-    dependency_block = re.search(
-        r"^dependencies\s*=\s*\[(.*?)\]",
-        (APP / "pyproject.toml").read_text(encoding="utf-8"),
-        re.MULTILINE | re.DOTALL,
+    declared = _declared_distributions(
+        (APP / "pyproject.toml").read_text(encoding="utf-8")
     )
-    assert dependency_block
-    declared = {
-        m.lower().replace("_", "-")
-        for m in re.findall(r'"([A-Za-z0-9._-]+)', dependency_block.group(1))
-    }
-
-    dist_of = md.packages_distributions()
     offenders: list[str] = []
     for mod in _modules():
-        for name in _toplevel_imports(ast.parse(mod.read_text(encoding="utf-8"))):
-            if name in ("homestead", "homestead_health") or name in sys.stdlib_module_names:
-                continue
-            dists = {d.lower().replace("_", "-") for d in dist_of.get(name, [])}
-            if not dists & declared:
-                offenders.append(
-                    f"{mod.relative_to(APP)} imports {name!r}"
-                    f" (ships in {sorted(dists) or 'nothing installed'})"
-                )
+        tree = ast.parse(mod.read_text(encoding="utf-8"))
+        for hit in _undeclared_imports(tree, declared):
+            offenders.append(f"{mod.relative_to(APP).as_posix()} imports {hit}")
     assert not offenders, (
         "every third-party import must be a declared dependency, not one that "
         f"happens to be installed. Found: {offenders}"
+    )
+
+
+def test_i27_scan_fires_on_a_planted_undeclared_import(tmp_path):
+    """X7-drift-health: `test_i27_every_third_party_import_is_declared` had no
+    plant anywhere in this suite — the exact gap *a scan that has never fired
+    has not been shown to check anything* exists to name.
+
+    Runs the scan itself (not a copy of its logic — the X7 audit's first cut
+    re-implemented the loop here, so a weakening of the real scan would have
+    left this green) over two planted files: one importing a package this
+    project neither declares nor ships, and one importing only the stdlib and
+    the engine, which must come back clean.
+    """
+    declared = _declared_distributions(
+        (APP / "pyproject.toml").read_text(encoding="utf-8")
+    )
+
+    planted = tmp_path / "planted_undeclared_import.py"
+    planted.write_text("import numpy\n", encoding="utf-8")
+    caught = _undeclared_imports(ast.parse(planted.read_text(encoding="utf-8")), declared)
+    assert [hit.split(" ")[0] for hit in caught] == ["numpy"], (
+        f"the scan must catch an undeclared third-party import; got {caught}"
+    )
+
+    clean = tmp_path / "clean_import.py"
+    clean.write_text("import json\nfrom homestead.keep import rungs\n", encoding="utf-8")
+    assert _undeclared_imports(ast.parse(clean.read_text(encoding="utf-8")), declared) == [], (
+        "and it must not fire on the stdlib or on the one declared dependency"
     )
 
 
