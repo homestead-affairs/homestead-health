@@ -108,9 +108,17 @@ hatch-vcs dynamic version (the pyproject already anticipates it), `NOTICE`,
 `test_invariants_release.py` once those files exist. `homestead-ledger` is the more
 complete file-shape template.
 
-**Deliberately NOT copied from the siblings:** the `<0.2` engine cap is intentional
+~~**Deliberately NOT copied from the siblings:** the `<0.2` engine cap is intentional
 (health carries the L4/L5 medical rungs; do not widen to the siblings' `<1.0` without
-checking the engine's releases), and there is **no UI surface yet** — so promote
+checking the engine's releases)~~ — reversed 2026-09-11 (bite H2-cap): the cap is
+now `<1.0`, the range the siblings' was designed for (see `pyproject.toml`'s
+`[project]` dependencies for why).
+
+~~There is **no UI surface yet**~~ — also stale, and corrected here rather than
+re-asserted: `homestead-health ui` has served entry forms, intake and gated
+read-back in the browser since the records-entry bite. What is still absent is a
+*packaged* surface — nothing double-clickable, no `packaging/` spec — so the
+promotion advice is unchanged and its reason is now the true one: promote
 *library-only* first (a `promote_check`-legal shape) and skip the `packaging/` +
 artifact CI that would build a binary that does not exist.
 

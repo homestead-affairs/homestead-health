@@ -182,12 +182,7 @@ def add_dose(
         store.put(MATTER, NEXT_DUE_ITEM, dose_id, Classified(FIELDS["next_due"], next_iso))
 
     visible = log if log is not None else VisibleLog()
-    # RECORD_SYNCED is the closest closed-enum act the pinned engine has for "a
-    # record was stored" — it has no RECORD_ADDED, and the enum is closed, so
-    # there is nothing truer to say here yet. Plan bite **H2-cap** raises the
-    # engine floor to the release that adds `Event.RECORD_ADDED` and switches
-    # this one line to it; the roster (`roster.add`) carries the same debt.
-    visible.record(Event.RECORD_SYNCED, ref=(dose_id,))
+    visible.record(Event.RECORD_ADDED, ref=(dose_id,))
     return DoseRef(id=dose_id, subject=sid)
 
 

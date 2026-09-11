@@ -16,6 +16,8 @@ counts next-due dates. This file holds the shape those consumers rely on:
 from __future__ import annotations
 
 import json
+import shutil
+from pathlib import Path
 
 import pytest
 
@@ -305,6 +307,100 @@ def test_a_raced_id_is_refused_by_the_store_and_nothing_is_written(household, mo
     monkeypatch.setattr(doses, "_next_number", recount)
     assert doses.add_dose(store, roster, subject=a, vaccine="DTaP",
                           dose_date="2026-08-16").id == "subj-01-02"
+
+
+# ── H2-cap: the engine floor raise, spent (RECORD_ADDED, not RECORD_SYNCED) ──
+
+
+def test_adding_a_dose_logs_record_added_not_record_synced(household):
+    """Bite H2-cap raised the engine floor to 0.3.0 for exactly this symbol:
+    before it, the closed enum had no `RECORD_ADDED` and `add_dose` borrowed
+    `RECORD_SYNCED` — "the closest closed-enum act the pinned engine has for
+    'a record was stored'", per the comment this bite removes. With the floor
+    raised, the borrowed act is a lie worth catching: a dose was *added*, not
+    *synced* (nothing sends anywhere), and `RECORD_SYNCED` is reserved for the
+    sync story bite E4/L5 actually builds.
+    """
+    store, roster, a, _ = household
+    ref = doses.add_dose(store, roster, subject=a, vaccine="MMR", dose_date="2026-08-15")
+
+    lines = VisibleLog().read()
+    dose_lines = [l for l in lines if l["ref"] == ref.id]
+    assert len(dose_lines) == 1, f"expected exactly one log line for {ref.id}, got {dose_lines}"
+    assert dose_lines[0]["event"] == "record_added"
+    assert not any(l["event"] == "record_synced" for l in lines), (
+        "no line in the visible log may claim record_synced for a plain add"
+    )
+
+
+def _record_synced_offenders(root: Path) -> list[str]:
+    """Every source line under `root` that still reaches for `RECORD_SYNCED`.
+
+    Source, not bytecode: `.py` files read as text, so a stale `__pycache__`
+    entry neither hides an offender nor invents one.
+
+    One helper, two callers — the scan below runs it over the installed
+    package, the plant test runs it over a copy of that package with the
+    violation put back. A plant that re-implements the comprehension instead
+    would prove only that the copy works: narrow the real scan to one file, or
+    stop it recursing, and the plant stays green while the guard sees nothing.
+    """
+    return [
+        f"{p.relative_to(root.parent)}:{i}: {line.strip()}"
+        for p in sorted(root.rglob("*.py"))
+        for i, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1)
+        if "RECORD_SYNCED" in line
+    ]
+
+
+def _package_root() -> Path:
+    """The installed package's source directory — editable install, wheel, or
+    the bare checkout the store's app-tests leg runs from (tests/conftest.py)."""
+    import homestead_health
+
+    return Path(homestead_health.__file__).resolve().parent
+
+
+def test_no_module_in_the_package_still_logs_record_synced():
+    """The grep this bite's *done when* names, run for real rather than by hand.
+    `doses.add_dose` was one of two writers carrying the RECORD_SYNCED debt —
+    `Roster.add` carried "the same debt" by the removed comment's own words —
+    so the check is over the whole package, not just this file's writer,
+    catching a third module that copies the old pattern just as surely."""
+    offenders = _record_synced_offenders(_package_root())
+    assert not offenders, (
+        f"RECORD_SYNCED must not appear anywhere under homestead_health/: {offenders}"
+    )
+
+
+def test_the_record_synced_scan_fires_on_a_plant(tmp_path):
+    """The scan above, held honest (a scan that has never fired has not been
+    shown to check anything).
+
+    The plant goes through `_record_synced_offenders` — the same helper, not a
+    copy of its comprehension — and into a *copy of the real package*, in a
+    subdirectory, so this fails if the scan is ever narrowed to one module or
+    stops walking the tree. The copy is scanned clean first, so a helper that
+    returned something for every input could not pass either.
+    """
+    copied = tmp_path / "homestead_health"
+    shutil.copytree(_package_root(), copied,
+                    ignore=shutil.ignore_patterns("__pycache__"))
+    assert _record_synced_offenders(copied) == [], (
+        "the copy of the package must start clean, or the plant proves nothing"
+    )
+
+    planted = copied / "packs" / "planted_writer.py"
+    planted.parent.mkdir(parents=True, exist_ok=True)
+    planted.write_text(
+        "from homestead.keep.logs import Event, VisibleLog\n"
+        "VisibleLog().record(Event.RECORD_SYNCED, ref=('subj-99-01',))\n",
+        encoding="utf-8",
+    )
+
+    offenders = _record_synced_offenders(copied)
+    assert len(offenders) == 1, f"expected exactly the plant, got {offenders}"
+    assert "planted_writer.py:2" in offenders[0] and "RECORD_SYNCED" in offenders[0]
 
 
 def test_a_malformed_subject_is_refused_as_export_refused_not_a_value_error(household):

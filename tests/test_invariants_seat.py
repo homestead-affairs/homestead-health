@@ -17,6 +17,12 @@ import subprocess
 import sys
 from pathlib import Path
 
+# `packaging` is pytest's own hard dependency, so it is present wherever this
+# suite runs; it is not an ambient import the package may make (the I-27 scan
+# below walks `homestead_health/`, not the tests).
+from packaging.specifiers import SpecifierSet
+from packaging.version import Version
+
 APP = Path(__file__).resolve().parent.parent
 PKG = APP / "homestead_health"
 
@@ -70,25 +76,10 @@ def _all_imports(tree: ast.Module) -> set[str]:
 # ── the pin ─────────────────────────────────────────────────────────────────────
 
 
-def test_the_engine_pin_is_true():
-    """I-27, both halves: the declared engine is the installed engine.
-
-    `import homestead.keep` succeeding proves an engine is present;
-    resolving the *distribution* proves it is the declared one
-    (`homestead-affairs`), not a same-named package that happens to be
-    importable — the import name and the distribution name differ by design,
-    and only the metadata ties them together.
-    """
-    import homestead.keep  # noqa: F401
-
-    version = md.version("homestead-affairs")
-    assert version, "the engine distribution is not installed; the pin is not true"
-
-
-def test_the_pin_has_a_floor_and_a_cap():
-    """The engine is pre-1.0 and decides what renders; the dependency line
-    states the release this seat was verified against and refuses the next
-    minor unseen — the engine's own floor-and-cap reasoning for `holidays`."""
+def _declared_engine_spec() -> str:
+    """The version specifier `pyproject.toml` declares for the engine, e.g.
+    `">=0.3.0,<1.0"` — read from the file, never from the installed metadata,
+    because the whole point is to compare the two."""
     dependency_block = re.search(
         r"^dependencies\s*=\s*\[(.*?)\]",
         (APP / "pyproject.toml").read_text(encoding="utf-8"),
@@ -97,7 +88,60 @@ def test_the_pin_has_a_floor_and_a_cap():
     assert dependency_block, "pyproject.toml must declare its dependencies"
     pin = re.search(r'"homestead-affairs([^"]*)"', dependency_block.group(1))
     assert pin, "the engine pin is the one declared dependency, and it is missing"
-    spec = pin.group(1)
+    return pin.group(1)
+
+
+def test_the_engine_pin_is_true():
+    """I-27, all three parts: the declared engine is the installed engine.
+
+    `import homestead.keep` succeeding proves an engine is present;
+    resolving the *distribution* proves it is the declared one
+    (`homestead-affairs`), not a same-named package that happens to be
+    importable — the import name and the distribution name differ by design,
+    and only the metadata ties them together.
+
+    The third part is new with bite H2-cap, which raised the floor to `0.3.0`
+    for a symbol this seat now spends (`Event.RECORD_ADDED`): the installed
+    *version* must satisfy the declared range. Without this the pin was a
+    sentence in a file — reverting the line to the old `>=0.1.0,<0.3` against
+    an installed 0.3.0 left every check in this file green, which is the seat
+    claiming a pin it is not holding. A deliberate out-of-range install (an
+    engine checkout put in with `--no-deps` to try unreleased work) is
+    supposed to fail here; that is the state being reported, not a bug.
+    """
+    import homestead.keep  # noqa: F401
+
+    version = md.version("homestead-affairs")
+    assert version, "the engine distribution is not installed; the pin is not true"
+
+    spec = _declared_engine_spec()
+    assert SpecifierSet(spec).contains(Version(version), prereleases=True), (
+        f"the installed engine is {version}, which does not satisfy the declared "
+        f"pin {spec!r} — either the pin moved without a reinstall, or an engine "
+        "outside the declared range was installed by hand"
+    )
+
+
+def test_the_pin_has_a_floor_and_a_cap():
+    """The engine decides what renders, so the dependency line carries both a
+    floor — the release whose symbols this seat spends, `Event.RECORD_ADDED`
+    (tests/test_invariants_release.py) — and a cap.
+
+    ~~and refuses the next minor unseen~~: the `<0.3` cap that clause described
+    was reversed on 2026-09-11 (bite **H2-cap**) in favour of `<1.0`, and this
+    docstring is the seat's copy of that reversal. What replaces the tight cap
+    is not faith. The engine's release-please config sets
+    `bump-minor-pre-major: false`, so `1.0.0` *is* its first compatibility
+    break and `<1.0` is the cap that means something; and CI installs the
+    newest engine the range allows on every PR (`pip install -e .`, no lock
+    file) and runs this suite against it, so a minor that changed what renders
+    arrives as a red check here rather than unseen on an operator's machine.
+
+    What this test checks is unchanged: a pin with no floor or no cap is the
+    failure, whatever the numbers are. `test_the_engine_pin_is_true` is what
+    holds the numbers to the engine actually installed.
+    """
+    spec = _declared_engine_spec()
     assert ">=" in spec, f"the pin needs a floor (got {spec!r})"
     assert "<" in spec, f"the pin needs a cap — the engine is pre-1.0 (got {spec!r})"
 

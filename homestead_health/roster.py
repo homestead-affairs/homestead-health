@@ -217,10 +217,10 @@ class Roster:
         if self._store is not None:
             self._store.put(ROSTER_MATTER, SUBJECT_ITEM, sid, record)
         if self._log is not None:
-            # The ref is the id and nothing else. RECORD_SYNCED is the closed-enum
+            # The ref is the id and nothing else. RECORD_ADDED is the closed-enum
             # act for "a record was stored"; there is no free-text field on this log
             # to leak the name through (F-4), and the ref (subj-NN) carries none.
-            self._log.record(Event.RECORD_SYNCED, ref=(sid,))
+            self._log.record(Event.RECORD_ADDED, ref=(sid,))
 
         # Commit in-memory state only after the write that could have failed.
         self._counter = n

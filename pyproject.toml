@@ -36,18 +36,29 @@ classifiers = [
 # `homestead-affairs` is the engine — homestead.keep, the record/deadline/
 # evidence core every module on the face pins. "A module cannot pin an engine
 # that does not exist"; this line is that pin. The floor is the release this
-# seat was built against (0.1.0, the engine's first release).
+# seat was verified against.
 #
-# The cap is `<0.2`, and it is deliberately TIGHTER than the two promoted
+# ~~The cap is `<0.2`, and it is deliberately TIGHTER than the two promoted
 # siblings' `<1.0`. Health carries the L4/L5 medical rungs, and the engine's
 # rung/serve surface is exactly the dependency that decides what renders — so
 # this app does not widen to `<1.0` on faith. The cap is revisited against the
-# engine's releases, one minor at a time, not by copying a sibling's range.
+# engine's releases, one minor at a time, not by copying a sibling's range.~~
+#
+# Reversed 2026-09-11 (H2-cap). A `<0.3` (originally `<0.2`) cap does not buy
+# review time — it silently strands this module on every engine minor, because
+# Dependabot cannot lift a hand-argued cap on its own. The engine's
+# `bump-minor-pre-major: false` already reserves `1.0.0` for the first
+# compatibility break (see the engine's own release-config test), so a
+# `<1.0` cap means exactly what it says: the floor moves release to release,
+# and the break, when it comes, is the one that bumps this pin. That is the
+# range the two promoted siblings' `<1.0` was designed for, not an exception
+# this module opted out of — health gets no more protection from a tighter
+# cap than they do, only more silent staleness.
 #
 # The engine is a pinned dependency, not territory: do not modify it, do not
 # propose changes to it from here, and do not generalize app logic into it.
 # Upstream changes are issues on homestead-affairs/homestead.
-dependencies = ["homestead-affairs>=0.1.0,<0.3"]
+dependencies = ["homestead-affairs>=0.3.0,<1.0"]
 
 [project.optional-dependencies]
 # `pyyaml` and `tomli` are for tests/test_invariants_release.py, which reads the

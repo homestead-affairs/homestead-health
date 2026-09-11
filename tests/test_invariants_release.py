@@ -270,3 +270,29 @@ def test_a_breaking_change_below_1_0_cuts_1_0_0_rather_than_a_minor():
         f"manifest is {version} — past 1.0 both flags are dead weight, because "
         "`isPreMajor` gates them and it is false from 1.0.0 on. Remove them."
     )
+
+
+def test_the_engine_floor_is_the_release_that_ships_record_added():
+    """Bite H2-cap: the dependency floor is a claim about what the installed
+    engine can do, and `doses.add_dose`/`Roster.add` now spend it — both log
+    `Event.RECORD_ADDED`, which does not exist before 0.3.0. The engine has no
+    deprecation window on a closed enum's members, so a floor that lags the
+    symbol a module imports is not a style question, it is a lie CI should
+    catch at collection rather than at the first `dose add`.
+
+    Importing the symbol here, rather than just grepping the pin, is what
+    proves the floor: this test fails on any engine that does not actually
+    ship `RECORD_ADDED`, independent of whatever `pyproject.toml` claims.
+    """
+    from homestead.keep.logs import Event
+
+    assert Event.RECORD_ADDED.value, "the installed engine has no RECORD_ADDED"
+
+    pyproject = tomllib.loads((_REPO / "pyproject.toml").read_text())
+    deps = pyproject["project"]["dependencies"]
+    pin = next((d for d in deps if d.startswith("homestead-affairs")), None)
+    assert pin, "the engine pin is the one declared dependency, and it is missing"
+    assert re.search(r">=\s*0\.3\.0\b", pin), (
+        f"the floor must be >=0.3.0 — the first release with Event.RECORD_ADDED "
+        f"(H2-cap raised it for exactly this symbol); found {pin!r}"
+    )
