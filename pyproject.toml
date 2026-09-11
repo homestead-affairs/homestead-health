@@ -116,3 +116,14 @@ packages = ["homestead_health"]
 # I-28: bare `pytest -q` must work. Nothing shadows the live suite.
 testpaths = ["tests"]
 norecursedirs = ["_archived", "build", "dist", ".git"]
+# H7-floor-0.12: `IntegrityLog._entries()` is a deprecated alias for
+# `read_entries()` (removed in 0.13.0). This scope catches a warning the
+# engine itself attributes to `homestead.keep.logs` (its default, unless a
+# caller overrides `stacklevel` — as `_entries()` itself does, naming its
+# *caller's* line instead, so a reintroduced call from this repo's own code
+# still shows as a plain warning here, not a failure; the real guard against
+# that is the static `test_nothing_spells_the_deprecated_entries_alias`).
+# What this line buys: any *other* future deprecation the engine raises from
+# inside its own module, at its own default stacklevel, fails CI instead of
+# going unread in a warnings summary.
+filterwarnings = ["error::DeprecationWarning:homestead.keep.logs"]

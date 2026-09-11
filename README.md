@@ -81,7 +81,8 @@ kept). The audit read (`replacements()`) goes through the engine's own reader
 (`homestead_health/ledger_seam.py`), never a raw parse of the log file, so once
 the operator has run `homestead integrity seal` on `living.jsonl` it needs the
 integrity key and the engine's `sealed` extra to be read at all, and it refuses
-by name rather than answering "never replaced" without them.
+by name rather than answering "never replaced" without them — and a log shorter
+than its anchor refuses too.
 
 The extension's **reference lane** (bite 6, `homestead_health/reference_lane.py`,
 H-7) completes the three postures: a pinned, versioned public-domain corpus of

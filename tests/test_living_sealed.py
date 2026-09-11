@@ -17,6 +17,7 @@ from homestead.keep import paths
 from homestead.keep.logs import (
     BOUNDARY_ACT,
     SEAL_BOUNDARY_ACT,
+    IntegrityIncompleteError,
     IntegrityKeyError,
     IntegrityLog,
     IntegritySealError,
@@ -276,12 +277,13 @@ def test_a_truncated_sealed_line_refuses_rather_than_answering_never_replaced(
     assert "authenticate" in str(excinfo.value)
 
 
-def test_an_engine_that_drops_the_private_reader_refuses_by_name(tmp_path, monkeypatch):
-    """`_entries` is underscore-private: a future `homestead-affairs` inside
-    the `<1.0` cap may rename or drop it with nothing in this repo changing.
-    The seam must then refuse by name, naming the one file to repoint, and
-    never degrade into `[]`. `tests/test_ledger_seam.py` pins the other half:
-    that today's installed engine still has it."""
+def test_an_engine_that_drops_the_public_reader_refuses_by_name(tmp_path, monkeypatch):
+    """`read_entries` is a public method (H7-floor-0.12), but still one a
+    future `homestead-affairs` inside the `<1.0` cap could rename or drop
+    with nothing in this repo changing. The seam must then refuse by name,
+    naming the one file to repoint, and never degrade into `[]`.
+    `tests/test_ledger_seam.py` pins the other half: that today's installed
+    engine still has it."""
     monkeypatch.setenv("HOMESTEAD_HOME", str(tmp_path))
     _write_lines([{"kind": LIVING_KIND, "thing": "sleep", "prior_sha256": "a" * 64}])
 
@@ -292,12 +294,75 @@ def test_an_engine_that_drops_the_private_reader_refuses_by_name(tmp_path, monke
     # household with no log at all — in tests/test_invariants_living.py.
     assert lane.replacements("nothing-ever-happened-here") == []
 
-    monkeypatch.delattr(IntegrityLog, "_entries")
+    monkeypatch.delattr(IntegrityLog, "read_entries")
     with pytest.raises(LivingLaneRefused) as excinfo:
         lane.replacements("sleep")
 
     assert isinstance(excinfo.value.__cause__, LedgerUnreadable)
-    assert "_entries" in str(excinfo.value) and "ledger_seam" in str(excinfo.value)
+    assert "read_entries" in str(excinfo.value) and "ledger_seam" in str(excinfo.value)
+
+
+# ── (g) a log shorter than its anchor refuses too (H7-floor-0.12) ───────────
+
+
+def test_a_chopped_log_refuses_rather_than_answering_never_replaced(tmp_path, monkeypatch):
+    """Three entries written, the file truncated to two lines with the
+    anchor left pointing at the third: every surviving line still chains
+    perfectly, so only the anchor comparison catches it.
+    `IntegrityLog.read_entries()` raises `IntegrityIncompleteError` rather
+    than a complete-looking short list — `H6-sealed-reader`'s bug shape, one
+    step earlier, closed by the E7 audit."""
+    monkeypatch.setenv("HOMESTEAD_HOME", str(tmp_path))
+    log_path = paths.logs_dir() / "living.jsonl"
+    log = IntegrityLog(log_path, anchor_path=paths.anchors_dir() / "living.head")
+    for i in range(3):
+        log.append({"kind": LIVING_KIND, "thing": "sleep", "prior_sha256": f"{i}" * 64})
+
+    lines = log_path.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 3, "the plant must land on three real, chained lines"
+    log_path.write_text("\n".join(lines[:2]) + "\n", encoding="utf-8")  # anchor still names line 3
+
+    with pytest.raises(LivingLaneRefused) as excinfo:
+        LivingLane().replacements("sleep")
+
+    assert isinstance(excinfo.value.__cause__, LedgerUnreadable)
+    assert isinstance(excinfo.value.__cause__.__cause__, IntegrityIncompleteError)
+    assert "sleep" not in str(excinfo.value), "a thing key is not content, but never echo one anyway"
+
+
+def test_a_deleted_log_with_a_surviving_anchor_refuses_rather_than_answering_never_replaced(
+    tmp_path, monkeypatch
+):
+    """The anchor is a separate file (`paths.anchors_dir()/living.head`):
+    deleting `living.jsonl` outright while it survives is the same
+    "shorter than the anchor says" finding as truncation, at the extreme —
+    zero surviving lines against an anchor that names one."""
+    monkeypatch.setenv("HOMESTEAD_HOME", str(tmp_path))
+    log_path = paths.logs_dir() / "living.jsonl"
+    log = IntegrityLog(log_path, anchor_path=paths.anchors_dir() / "living.head")
+    log.append({"kind": LIVING_KIND, "thing": "sleep", "prior_sha256": "a" * 64})
+
+    assert log_path.exists()
+    assert (paths.anchors_dir() / "living.head").exists()
+    log_path.unlink()  # the anchor survives; the log itself is gone
+
+    with pytest.raises(LivingLaneRefused) as excinfo:
+        LivingLane().replacements("sleep")
+
+    assert isinstance(excinfo.value.__cause__, LedgerUnreadable)
+    assert isinstance(excinfo.value.__cause__.__cause__, IntegrityIncompleteError)
+
+
+def test_a_log_never_written_still_answers_empty_absent_is_not_corrupt(tmp_path, monkeypatch):
+    """The distinction this whole class exists to pin: a log that was never
+    written has no anchor to be short of, and that is the true `[]` —
+    unlike the chopped and deleted cases above, both of which leave an
+    anchor behind with nothing (or too little) to back it."""
+    monkeypatch.setenv("HOMESTEAD_HOME", str(tmp_path))
+    assert not (paths.logs_dir() / "living.jsonl").exists()
+    assert not (paths.anchors_dir() / "living.head").exists()
+
+    assert LivingLane().replacements("sleep") == []
 
 
 # ── (f) boundary rows are never content, and never over-filter ──────────────
@@ -336,15 +401,21 @@ def test_a_replacement_named_like_a_boundary_act_is_still_found(tmp_path, monkey
     assert lane.replacements(SEAL_BOUNDARY_ACT) == [rows[1]]
 
 
-def test_a_fresh_reader_answers_a_keyed_but_unsealed_log_with_and_without_the_key(
-    tmp_path, monkeypatch
-):
+def test_a_keyed_but_unsealed_log_needs_the_key_to_be_read_at_all(tmp_path, monkeypatch):
     """`LivingLane` builds its own `IntegrityLog` with auto key/seal
-    detection rather than being handed the writer's, and a reader that
-    resolved keying differently would refuse on every keyed log. So: write
-    keyed (never sealed), read through a *fresh* lane, delete the key, read
-    again. A keyed log is plaintext — only sealing makes the key load-bearing
-    for reading."""
+    detection rather than being handed the writer's: write keyed (never
+    sealed), read through a *fresh* lane with the key present, delete the
+    key, read again.
+
+    Before 0.12.0 the second read still succeeded: `_entries()` walked the
+    plaintext content and never checked it against the anchor, so a keyed
+    log's key mattered only for `verify()`. `read_entries()` (E7) checks
+    every read's completeness against the anchor, and that check is itself
+    keyed the moment the anchor is (`IntegrityLog._require_whole`) — so
+    losing the key now costs *readability* too, refusing rather than
+    quietly answering the plaintext prefix. A narrowing the engine's own
+    audit brought, not a line this repo wrote to cause it — pinned here so
+    a green suite says so out loud."""
     monkeypatch.setenv("HOMESTEAD_HOME", str(tmp_path))
     key_path = init_key()
     writer = LivingLane(ledger=IntegrityLog(
@@ -353,10 +424,9 @@ def test_a_fresh_reader_answers_a_keyed_but_unsealed_log_with_and_without_the_ke
     writer.remember("sleep", PRIOR)
     writer.remember("sleep", LATEST)
 
-    assert len(LivingLane().replacements("sleep")) == 1
+    assert len(LivingLane().replacements("sleep")) == 1  # readable while the key is present
 
     key_path.unlink()
-    assert len(LivingLane().replacements("sleep")) == 1, (
-        "a keyed-but-unsealed log is plaintext; losing the key costs verification, "
-        "not readability (E5's posture, unchanged by this fix)"
-    )
+    with pytest.raises(LivingLaneRefused) as excinfo:
+        LivingLane().replacements("sleep")
+    assert isinstance(excinfo.value.__cause__, IntegrityKeyError)
