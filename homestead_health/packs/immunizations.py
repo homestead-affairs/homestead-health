@@ -35,10 +35,9 @@ either pane calls `advise()` over the rendered `provider`/`notes` text yet. Unti
 that call is added, the `provider`/`notes` declarations are as unguarded against
 hot content as the field says they otherwise would not be; wiring `advisory_lines`
 into the detail pane that now exists is a debt, flagged here so it is not
-forgotten. No `ssn`,
-no member id, no insurance field lives here: key
-material belongs to the insurance pack when it exists, at `L5`, and importing one
-field of it early would be the two-homes drift the plan's exclusion 3 refuses.
+forgotten. No `ssn`, no member id, no insurance field lives here: key material
+belongs to the insurance pack when it exists, at `L5`, and importing one field
+of it early would be the two-homes drift the plan's exclusion 3 refuses.
 """
 from __future__ import annotations
 

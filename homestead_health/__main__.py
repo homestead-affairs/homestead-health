@@ -50,7 +50,7 @@ def main(argv: list[str] | None = None) -> int:
     if "--smoke" in argv:
         # **Every module in the package, by name.** The claim on the tin is
         # "prove every import survived packaging", and a smoke test that imports
-        # four of fifteen modules does not make it: a wheel missing `server`,
+        # four of sixteen modules does not make it: a wheel missing `server`,
         # `cli`, `doses`, `intake` or `school_form` printed "smoke ok" and
         # shipped. `tests/test_invariants_smoke.py` scans this branch against
         # the package's own file list, so a module added without a line here is

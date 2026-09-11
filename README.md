@@ -109,7 +109,15 @@ One row per capability, not per file — several files serve one capability
 `tests/test_docs_drift.py`'s scan (a planted omission fails it) checks every
 `homestead_health/*.py` file is named somewhere below, save the three
 package-scaffolding files (`__init__.py`, `__main__.py`,
-`packs/__init__.py`) it excludes by name.
+`packs/__init__.py`) it excludes by basename.
+
+**Since** is the release the capability first *shipped in*, read off
+`CHANGELOG.md` against the commit that added the file — not the release that
+happened to be current when it was written. The entity seam is the row that
+got this wrong on its first pass: `nestor_seam.py`/`nestor_store.py` landed
+(#7, #9) after `v0.1.0` was cut, so they first shipped in 0.2.0. A second
+guard in the same test file holds every number in this column to a version
+`CHANGELOG.md` actually released.
 
 | Capability | Module(s) | Since |
 |---|---|---|
@@ -122,7 +130,7 @@ package-scaffolding files (`__init__.py`, `__main__.py`,
 | Reference lane — cited Q&A, no subject | `reference_lane.py` | 0.1.0 |
 | Living lane — the forgetting cell | `living.py` | 0.1.0 |
 | Sealed reader — the living lane's audit read routed through the engine's `IntegrityLog`, refusing on a sealed log without the key | `living.py`, `ledger_seam.py` | 0.2.2 (H6-sealed-reader) |
-| Entity resolution & Nestor ledger check (`entity` extra) | `nestor_seam.py`, `nestor_store.py` | 0.1.0 |
+| Entity resolution & Nestor ledger check (`entity` extra) | `nestor_seam.py`, `nestor_store.py` | 0.2.0 |
 | Sync | — | **not built.** Health has no sync bite; sync is engine + law/ledger territory (the plan's Wave 4). A household syncs custody and ledger records, never health's. |
 
 ## Entering your own information
