@@ -57,7 +57,7 @@ from pathlib import Path
 from homestead.keep import paths
 from homestead.keep.logs import IntegrityKeyError, IntegrityLog, IntegritySealError
 
-from homestead_health.ledger_seam import _ledger_entries
+from homestead_health.ledger_seam import LedgerUnreadable, _ledger_entries
 
 __all__ = ["LivingLane", "LIVING_KIND", "LivingLaneRefused"]
 
@@ -114,11 +114,19 @@ def _sha256(text: str) -> str:
 class LivingLaneRefused(Exception):
     """The audit could not be answered -- refused by name, never as `[]`.
 
-    Raised by `replacements()` when the ledger cannot be read: a sealed
-    segment without the key or the `sealed` extra, or a keyed segment
-    without the key. Wraps the engine's `IntegritySealError`/
-    `IntegrityKeyError` as `__cause__`, message carried through unchanged
+    Raised by `replacements()` whenever the ledger cannot be read: a sealed
+    segment without the key or the `sealed` extra, a keyed segment without
+    the key, a corrupt or truncated line, a sealed line that fails to
+    authenticate, or an engine that no longer exposes the reader the seam
+    reads through. Wraps the engine's `IntegritySealError`/
+    `IntegrityKeyError`, or the seam's `LedgerUnreadable`, as `__cause__`,
+    message carried through unchanged
     (H6-sealed-reader: this used to answer `[]` here instead — I-11).
+
+    **Not** raised for a ledger that has never been written: no file, or a
+    file with no matching lines, is the true answer `[]`, and the difference
+    between "nothing was ever forgotten" and "I cannot tell" is the whole
+    point of this class existing.
     """
 
 
@@ -197,11 +205,18 @@ class LivingLane:
         honest answer is "cannot tell without the key." The seam decrypts what it
         can and raises by name the moment it cannot; wrapped here as
         `LivingLaneRefused` so this refuses rather than answering empty (I-11).
+
+        The same refusal covers every other way the read can fail — a corrupt
+        or truncated line, a sealed line that does not authenticate, an
+        engine that dropped the reader (`ledger_seam.LedgerUnreadable`) — so
+        a caller has exactly one exception to catch and never a bare
+        `JSONDecodeError` or `AttributeError` out of a stdlib frame. A ledger
+        that was never written still answers `[]`: absent is not corrupt.
         """
         thing = _validate_thing(thing)
         try:
             entries = list(_ledger_entries(self._ledger))
-        except (IntegritySealError, IntegrityKeyError) as exc:
+        except (IntegritySealError, IntegrityKeyError, LedgerUnreadable) as exc:
             raise LivingLaneRefused(str(exc)) from exc
         return [
             entry for entry in entries
