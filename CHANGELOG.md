@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.2.1](https://github.com/homestead-affairs/homestead-health/compare/v0.2.0...v0.2.1) (2026-09-11)
+
+
+### Fixed
+
+* drain a refused request body before the socket closes ([a46a4c8](https://github.com/homestead-affairs/homestead-health/commit/a46a4c87147b88d92181b1a49b1d150f39e6dae6))
+* drain a refused request body before the socket closes ([#20](https://github.com/homestead-affairs/homestead-health/issues/20)) ([7e86159](https://github.com/homestead-affairs/homestead-health/commit/7e86159898a1618c3fc087b8db040d1806a2a23e))
+
+
+### Build
+
+* **deps:** lift the engine cap to &lt;1.0 and log RECORD_ADDED for a dose ([#19](https://github.com/homestead-affairs/homestead-health/issues/19)) ([0547169](https://github.com/homestead-affairs/homestead-health/commit/0547169cbd52823b1a04b913e2b92057f19c3554))
+* **deps:** widen the engine cap to &lt;1.0 and pay the RECORD_ADDED debt ([5649afe](https://github.com/homestead-affairs/homestead-health/commit/5649afe49f7ae522fa3e985abc3efb48fb21162a))
+
 ## [0.2.0](https://github.com/homestead-affairs/homestead-health/compare/v0.1.0...v0.2.0) (2026-09-11)
 
 
