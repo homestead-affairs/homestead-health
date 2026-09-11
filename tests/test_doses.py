@@ -16,6 +16,7 @@ counts next-due dates. This file holds the shape those consumers rely on:
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 
 import pytest
@@ -332,21 +333,41 @@ def test_adding_a_dose_logs_record_added_not_record_synced(household):
     )
 
 
+def _record_synced_offenders(root: Path) -> list[str]:
+    """Every source line under `root` that still reaches for `RECORD_SYNCED`.
+
+    Source, not bytecode: `.py` files read as text, so a stale `__pycache__`
+    entry neither hides an offender nor invents one.
+
+    One helper, two callers — the scan below runs it over the installed
+    package, the plant test runs it over a copy of that package with the
+    violation put back. A plant that re-implements the comprehension instead
+    would prove only that the copy works: narrow the real scan to one file, or
+    stop it recursing, and the plant stays green while the guard sees nothing.
+    """
+    return [
+        f"{p.relative_to(root.parent)}:{i}: {line.strip()}"
+        for p in sorted(root.rglob("*.py"))
+        for i, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1)
+        if "RECORD_SYNCED" in line
+    ]
+
+
+def _package_root() -> Path:
+    """The installed package's source directory — editable install, wheel, or
+    the bare checkout the store's app-tests leg runs from (tests/conftest.py)."""
+    import homestead_health
+
+    return Path(homestead_health.__file__).resolve().parent
+
+
 def test_no_module_in_the_package_still_logs_record_synced():
     """The grep this bite's *done when* names, run for real rather than by hand.
     `doses.add_dose` was one of two writers carrying the RECORD_SYNCED debt —
     `Roster.add` carried "the same debt" by the removed comment's own words —
     so the check is over the whole package, not just this file's writer,
     catching a third module that copies the old pattern just as surely."""
-    import homestead_health
-
-    pkg = Path(homestead_health.__file__).resolve().parent
-    offenders = [
-        f"{p.relative_to(pkg.parent)}:{i}: {line.strip()}"
-        for p in sorted(pkg.rglob("*.py"))
-        for i, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1)
-        if "RECORD_SYNCED" in line
-    ]
+    offenders = _record_synced_offenders(_package_root())
     assert not offenders, (
         f"RECORD_SYNCED must not appear anywhere under homestead_health/: {offenders}"
     )
@@ -354,20 +375,32 @@ def test_no_module_in_the_package_still_logs_record_synced():
 
 def test_the_record_synced_scan_fires_on_a_plant(tmp_path):
     """The scan above, held honest (a scan that has never fired has not been
-    shown to check anything): planting exactly the pattern it forbids, in a
-    file the real scan never sees, proves the substring check actually catches
-    it rather than passing by construction."""
-    planted = tmp_path / "planted_writer.py"
+    shown to check anything).
+
+    The plant goes through `_record_synced_offenders` — the same helper, not a
+    copy of its comprehension — and into a *copy of the real package*, in a
+    subdirectory, so this fails if the scan is ever narrowed to one module or
+    stops walking the tree. The copy is scanned clean first, so a helper that
+    returned something for every input could not pass either.
+    """
+    copied = tmp_path / "homestead_health"
+    shutil.copytree(_package_root(), copied,
+                    ignore=shutil.ignore_patterns("__pycache__"))
+    assert _record_synced_offenders(copied) == [], (
+        "the copy of the package must start clean, or the plant proves nothing"
+    )
+
+    planted = copied / "packs" / "planted_writer.py"
+    planted.parent.mkdir(parents=True, exist_ok=True)
     planted.write_text(
         "from homestead.keep.logs import Event, VisibleLog\n"
-        "VisibleLog().record(Event.RECORD_SYNCED, ref=('subj-99-01',))\n"
+        "VisibleLog().record(Event.RECORD_SYNCED, ref=('subj-99-01',))\n",
+        encoding="utf-8",
     )
-    offenders = [
-        f"{planted.name}:{i}"
-        for i, line in enumerate(planted.read_text(encoding="utf-8").splitlines(), 1)
-        if "RECORD_SYNCED" in line
-    ]
-    assert offenders, "the scan must catch a planted RECORD_SYNCED reference"
+
+    offenders = _record_synced_offenders(copied)
+    assert len(offenders) == 1, f"expected exactly the plant, got {offenders}"
+    assert "planted_writer.py:2" in offenders[0] and "RECORD_SYNCED" in offenders[0]
 
 
 def test_a_malformed_subject_is_refused_as_export_refused_not_a_value_error(household):
