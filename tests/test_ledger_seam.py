@@ -91,7 +91,7 @@ def test_no_module_parses_a_jsonl_ledger_with_a_bare_json_loads():
     """The real tree: zero files name a `.jsonl` path and call `json.loads`
     themselves — `living.py` used to be exactly this file."""
     offenders = [
-        str(p.relative_to(_PKG.parent))
+        p.relative_to(_PKG.parent).as_posix()
         for p in _PKG.rglob("*.py")
         if _reads_a_jsonl_path_with_bare_json_loads(p)
     ]
@@ -166,7 +166,7 @@ def test_only_the_seam_calls_the_engines_private_entries_reader():
     for p in _PKG.rglob("*.py"):
         hits = _calls_entries_underscore(p)
         if hits:
-            callers[str(p.relative_to(_PKG.parent))] = hits
+            callers[p.relative_to(_PKG.parent).as_posix()] = hits
 
     assert set(callers) <= {"homestead_health/ledger_seam.py"}, (
         f"a module other than ledger_seam.py calls the engine's private "
