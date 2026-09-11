@@ -117,13 +117,34 @@ packages = ["homestead_health"]
 testpaths = ["tests"]
 norecursedirs = ["_archived", "build", "dist", ".git"]
 # H7-floor-0.12: `IntegrityLog._entries()` is a deprecated alias for
-# `read_entries()` (removed in 0.13.0). This scope catches a warning the
-# engine itself attributes to `homestead.keep.logs` (its default, unless a
-# caller overrides `stacklevel` — as `_entries()` itself does, naming its
-# *caller's* line instead, so a reintroduced call from this repo's own code
-# still shows as a plain warning here, not a failure; the real guard against
-# that is the static `test_nothing_spells_the_deprecated_entries_alias`).
-# What this line buys: any *other* future deprecation the engine raises from
-# inside its own module, at its own default stacklevel, fails CI instead of
-# going unread in a warnings summary.
-filterwarnings = ["error::DeprecationWarning:homestead.keep.logs"]
+# `read_entries()` (removed in 0.13.0), so a reintroduced call to it must
+# fail CI here rather than scroll past in a warnings summary.
+#
+# A warning is filed against the module the *warner* points `stacklevel` at,
+# not the module that raised it: `_entries()` uses `stacklevel=2` so its
+# `DeprecationWarning` is attributed to its caller (`homestead_health.
+# ledger_seam`, or whoever reintroduces the call), never to
+# `homestead.keep.logs`. Hence three lines, each doing a different job:
+#
+#   1. `homestead.keep.logs` — any *other* engine deprecation raised from
+#      inside that module at its own default `stacklevel=1`.
+#   2. `homestead_health` — a prefix match on the warned-at module's
+#      `__name__`, so it covers every module in this package: this is the
+#      line that actually fails a reintroduced `_entries()` call from our
+#      own code. (These ini entries are regexes matched from the start of
+#      the name and are *not* escaped, unlike a `-W` flag, whose module
+#      field pytest anchors with `\Z` — so `-W` cannot express this.)
+#   3. the message regex — the same call made from a test module or a
+#      conftest, which carries neither module name above.
+#
+# Proven against a plant, not asserted: `tests/test_ledger_seam.py::
+# test_the_deprecated_alias_filter_fails_a_reintroduced_call` runs pytest in
+# a subprocess against *this* config over a planted `homestead_health.*`
+# module that calls `_entries()`, and requires it to fail. The static
+# `test_nothing_spells_the_deprecated_entries_alias` AST scan stays as the
+# backstop that does not need the line to be executed.
+filterwarnings = [
+    "error::DeprecationWarning:homestead.keep.logs",
+    "error::DeprecationWarning:homestead_health",
+    "error:.*_entries.*:DeprecationWarning",
+]

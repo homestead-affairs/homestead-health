@@ -9,11 +9,15 @@ shown to check anything.
 from __future__ import annotations
 
 import ast
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
 _PKG = Path(__file__).resolve().parent.parent / "homestead_health"
+_PYPROJECT = _PKG.parent / "pyproject.toml"
 
 
 def _reads_a_jsonl_path_with_bare_json_loads(py_file: Path) -> bool:
@@ -267,4 +271,107 @@ def test_the_engine_still_has_the_public_reader_this_seam_reaches_for():
         "the installed homestead-affairs no longer exposes "
         "IntegrityLog.read_entries — homestead_health/ledger_seam.py is the "
         "one file to repoint at whatever replaced it"
+    )
+
+
+# ── the runtime half of the same guard: the deprecation filter (H7) ─────────
+
+_PLANTED_CALLER = """\
+\"\"\"A reintroduced call to the engine's deprecated `_entries()` alias, in a
+module whose `__name__` starts with `homestead_health` — exactly what the AST
+guard above forbids statically, planted here to see whether the *runtime*
+guard catches it too.\"\"\"
+
+
+def replacements(log):
+    return list(log._entries())
+"""
+
+_PLANTED_TEST = """\
+from homestead.keep import paths
+from homestead.keep.logs import IntegrityLog
+from homestead_health.planted_alias_caller import replacements
+
+
+def test_the_plant_calls_the_deprecated_alias():
+    log = IntegrityLog(
+        paths.logs_dir() / "living.jsonl",
+        anchor_path=paths.anchors_dir() / "living.head",
+    )
+    log.append({"kind": "living_replaced", "thing": "sleep"})
+    assert replacements(log)
+"""
+
+
+def _run_planted_alias_call(tmp_path, *, config: Path) -> subprocess.CompletedProcess:
+    """Run one pytest subprocess over a planted `homestead_health.*` module
+    that calls `_entries()`, under `config`'s ini.
+
+    The plant is a real package directory named `homestead_health` on a
+    `PYTHONPATH` entry of its own, so the warning is filed against the module
+    name `homestead_health.planted_alias_caller` — the thing the filter
+    matches on — rather than against a top-level module that merely happens
+    to start with those letters. It shadows the installed package for the
+    length of this subprocess only; nothing in the plant imports the real
+    one."""
+    plant = tmp_path / "plant" / "homestead_health"
+    plant.mkdir(parents=True)
+    (plant / "__init__.py").write_text("", encoding="utf-8")
+    (plant / "planted_alias_caller.py").write_text(_PLANTED_CALLER, encoding="utf-8")
+    test_file = tmp_path / "test_planted_alias_call.py"
+    test_file.write_text(_PLANTED_TEST, encoding="utf-8")
+
+    home = tmp_path / "home"
+    home.mkdir()
+    env = dict(os.environ)
+    env["PYTHONPATH"] = str(tmp_path / "plant")
+    env["HOMESTEAD_HOME"] = str(home)
+    return subprocess.run(
+        [
+            sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider",
+            "-c", str(config), "--rootdir", str(tmp_path), str(test_file),
+        ],
+        capture_output=True, text=True, cwd=str(tmp_path), env=env, timeout=300,
+    )
+
+
+def test_the_deprecated_alias_filter_fails_a_reintroduced_call(tmp_path):
+    """`pyproject.toml`'s `filterwarnings` must actually turn a reintroduced
+    `_entries()` call into a CI failure — the runtime half of
+    `test_nothing_spells_the_deprecated_entries_alias`, which only reads
+    source.
+
+    This is not a detail of taste. `_entries()` warns with `stacklevel=2`,
+    which files the `DeprecationWarning` against the *caller's* module, so a
+    filter scoped to the engine's own `homestead.keep.logs` never matches a
+    call made from here — the filter would have been decoration. The scopes
+    added for it (`homestead_health`, and the message regex) are proven the
+    only way a filter can be: by planting the violation and requiring the run
+    to go red."""
+    proc = _run_planted_alias_call(tmp_path, config=_PYPROJECT)
+
+    assert proc.returncode != 0, (
+        "the planted _entries() call passed under this repo's filterwarnings "
+        f"— the filter does not cover it:\n{proc.stdout}\n{proc.stderr}"
+    )
+    assert "DeprecationWarning" in proc.stdout and "_entries" in proc.stdout, (
+        f"the run failed, but not on the deprecation:\n{proc.stdout}\n{proc.stderr}"
+    )
+
+
+def test_the_same_plant_passes_without_the_filter(tmp_path):
+    """The control that makes the test above mean something: under an ini
+    with no `filterwarnings` at all, the identical plant *passes* with the
+    deprecation as a mere warnings-summary line. So what fails it above is
+    the configured filter, not the plant being broken in some other way —
+    and this is precisely the state the repo was in before this bite widened
+    the scope."""
+    bare = tmp_path / "bare.ini"
+    bare.write_text("[pytest]\n", encoding="utf-8")
+    proc = _run_planted_alias_call(tmp_path, config=bare)
+
+    assert proc.returncode == 0, f"{proc.stdout}\n{proc.stderr}"
+    assert "DeprecationWarning" in proc.stdout, (
+        "the plant did not even raise the deprecation — the engine's alias "
+        f"may be gone:\n{proc.stdout}"
     )
