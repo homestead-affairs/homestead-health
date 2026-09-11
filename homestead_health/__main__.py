@@ -65,6 +65,7 @@ def main(argv: list[str] | None = None) -> int:
         from homestead_health import due
         from homestead_health import emergency
         from homestead_health import intake
+        from homestead_health import ledger_seam
         from homestead_health import living
         from homestead_health import nestor_seam
         from homestead_health import nestor_store
@@ -77,8 +78,8 @@ def main(argv: list[str] | None = None) -> int:
 
         # Bound, not discarded: an import whose name nothing reads is one a
         # linter offers to delete, and this list is the test.
-        imported = (_egress, cli, doses, due, emergency, intake, living,
-                    nestor_seam, nestor_store, reference, reference_lane,
+        imported = (_egress, cli, doses, due, emergency, intake, ledger_seam,
+                    living, nestor_seam, nestor_store, reference, reference_lane,
                     roster, school_form, server, immunizations)
         print(f"homestead-health: smoke ok ({len(imported)} modules)")
         return 0

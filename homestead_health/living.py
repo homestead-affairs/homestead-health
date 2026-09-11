@@ -50,15 +50,16 @@ thing that leaves, and it leaves nothing behind.
 from __future__ import annotations
 
 import hashlib
-import json
 import re
 import unicodedata
 from pathlib import Path
 
 from homestead.keep import paths
-from homestead.keep.logs import IntegrityLog
+from homestead.keep.logs import IntegrityKeyError, IntegrityLog, IntegritySealError
 
-__all__ = ["LivingLane", "LIVING_KIND"]
+from homestead_health.ledger_seam import _ledger_entries
+
+__all__ = ["LivingLane", "LIVING_KIND", "LivingLaneRefused"]
 
 #: The `IntegrityLog` entry kind for a forgetting. Not one of `keep`'s closed
 #: `Event` members (that enum is the `VisibleLog`'s, and shut); the `IntegrityLog`
@@ -108,6 +109,17 @@ def _validate_thing(thing: object) -> str:
 
 def _sha256(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+class LivingLaneRefused(Exception):
+    """The audit could not be answered -- refused by name, never as `[]`.
+
+    Raised by `replacements()` when the ledger cannot be read: a sealed
+    segment without the key or the `sealed` extra, or a keyed segment
+    without the key. Wraps the engine's `IntegritySealError`/
+    `IntegrityKeyError` as `__cause__`, message carried through unchanged
+    (H6-sealed-reader: this used to answer `[]` here instead — I-11).
+    """
 
 
 class LivingLane:
@@ -175,22 +187,26 @@ class LivingLane:
         """The `living_replaced` ledger lines for `thing`, oldest first.
 
         The operator-visible motion: how many times, in what order, with the hash of
-        each forgotten value — and no value, no subject. Read straight from the
-        chain's file (`self._ledger.path` is public), filtered by kind and thing, so
-        nothing here reaches a private of the engine's log.
+        each forgotten value — and no value, no subject.
+
+        Read through `ledger_seam._ledger_entries()` — the engine's own reader —
+        never a bare `json.loads` over `self._ledger.path` (H6-sealed-reader): once
+        `homestead integrity seal` has run, a sealed line is `{"sealed": 1, ...}`,
+        which a bare `json.loads` reads as a dict with no `kind` field and silently
+        drops, so the sealed case used to answer `[]` — "never replaced" — when the
+        honest answer is "cannot tell without the key." The seam decrypts what it
+        can and raises by name the moment it cannot; wrapped here as
+        `LivingLaneRefused` so this refuses rather than answering empty (I-11).
         """
         thing = _validate_thing(thing)
-        path = self._ledger.path
-        if not path.exists():
-            return []
-        out: list[dict] = []
-        for raw in path.read_text(encoding="utf-8").splitlines():
-            if not raw.strip():
-                continue
-            entry = json.loads(raw)
-            if entry.get("kind") == LIVING_KIND and entry.get("thing") == thing:
-                out.append(entry)
-        return out
+        try:
+            entries = list(_ledger_entries(self._ledger))
+        except (IntegritySealError, IntegrityKeyError) as exc:
+            raise LivingLaneRefused(str(exc)) from exc
+        return [
+            entry for entry in entries
+            if entry.get("kind") == LIVING_KIND and entry.get("thing") == thing
+        ]
 
     def verify(self, expected_head: str | None = None) -> bool:
         """The forgetting is un-forged. Walks the chain; `expected_head` (a head the
