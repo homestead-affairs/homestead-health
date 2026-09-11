@@ -272,6 +272,63 @@ def test_a_breaking_change_below_1_0_cuts_1_0_0_rather_than_a_minor():
     )
 
 
+#: The engine floor a pin declares, as an `(int, int, int)` tuple, or `None` if
+#: the pin declares no `>=X.Y.Z` at all. Health has no `packaging` dependency
+#: and is not gaining one for two assertions, so the parse is by hand — which
+#: is exactly why `test_the_floor_parser_is_not_fooled` plants the strings that
+#: fool a careless one. Compared as integer tuples, never as strings: `"0.9.10"`
+#: sorts *above* `"0.11.0"` lexically, and a string comparison here would have
+#: called a stale floor satisfactory.
+_FLOOR_RE = re.compile(r">=\s*(\d+)\.(\d+)\.(\d+)")
+
+
+def _declared_floor(pin: str) -> tuple[int, int, int] | None:
+    match = _FLOOR_RE.search(pin)
+    return tuple(int(g) for g in match.groups()) if match else None
+
+
+def _engine_pin() -> str:
+    pyproject = tomllib.loads((_REPO / "pyproject.toml").read_text())
+    deps = pyproject["project"]["dependencies"]
+    pin = next((d for d in deps if d.startswith("homestead-affairs")), None)
+    assert pin, "the engine pin is the one declared dependency, and it is missing"
+    return pin
+
+
+@pytest.mark.parametrize(
+    "pin, floor",
+    [
+        ("homestead-affairs>=0.11.0,<1.0", (0, 11, 0)),      # the shipped shape
+        ("homestead-affairs<1.0,>=0.11.0", (0, 11, 0)),      # order swapped
+        ("homestead-affairs >= 0.11.0", (0, 11, 0)),         # PEP 508 spacing
+        ("homestead-affairs>=0.9.10,<1.0", (0, 9, 10)),      # lexically > "0.11.0"
+        ("homestead-affairs>=0.3.0,<1.0", (0, 3, 0)),        # the pre-H6 floor
+        ("homestead-affairs>=0.11.0rc1", (0, 11, 0)),        # a pre-release floor
+        ("homestead-affairs==0.11.0", None),                 # a pin, not a floor
+        ("homestead-affairs>=0.11", None),                   # two-part, not X.Y.Z
+        ("homestead-affairs", None),                         # no version at all
+    ],
+)
+def test_the_floor_parser_is_not_fooled(pin, floor):
+    """The parser's own test — planted strings, because a parser shown only
+    the one pin in `pyproject.toml` has not been shown to check anything. A
+    comma-joined cap must not swallow the floor, and a pin with no `>=X.Y.Z`
+    must parse as `None` so the assertions fail with "no floor to read"
+    rather than pass on a regex that matched nothing. `>=0.11.0rc1` parses as
+    `(0, 11, 0)` — over-generous, harmless only because both floor tests
+    *import the symbol* too: an rc that does not ship it fails the import."""
+    assert _declared_floor(pin) == floor
+
+
+def test_a_stale_floor_is_rejected_even_when_it_sorts_high_as_a_string():
+    """The one trap worth its own name: `0.9.10` is *below* `0.11.0` and above
+    it as text. A floor check written as `pin >= ">=0.11.0"` — or any string
+    comparison — passes a pin that would install an engine with no sealing at
+    all, and the failure would not surface until a sealed household's audit."""
+    assert _declared_floor("homestead-affairs>=0.9.10,<1.0") < (0, 11, 0)
+    assert "0.9.10" > "0.11.0", "the string comparison this guards against"
+
+
 def test_the_engine_floor_is_the_release_that_ships_record_added():
     """Bite H2-cap: the dependency floor is a claim about what the installed
     engine can do, and `doses.add_dose`/`Roster.add` now spend it — both log
@@ -283,16 +340,47 @@ def test_the_engine_floor_is_the_release_that_ships_record_added():
     Importing the symbol here, rather than just grepping the pin, is what
     proves the floor: this test fails on any engine that does not actually
     ship `RECORD_ADDED`, independent of whatever `pyproject.toml` claims.
+
+    The floor check is *at least* 0.3.0, not *exactly* — a later bite (e.g.
+    H6-sealed-reader, 0.11.0) raises the floor again for a different symbol,
+    and that is a floor that still satisfies this one's claim. An exact-match
+    regex here would make every subsequent legitimate raise fail this test
+    for no reason connected to `RECORD_ADDED` at all.
     """
     from homestead.keep.logs import Event
 
     assert Event.RECORD_ADDED.value, "the installed engine has no RECORD_ADDED"
 
-    pyproject = tomllib.loads((_REPO / "pyproject.toml").read_text())
-    deps = pyproject["project"]["dependencies"]
-    pin = next((d for d in deps if d.startswith("homestead-affairs")), None)
-    assert pin, "the engine pin is the one declared dependency, and it is missing"
-    assert re.search(r">=\s*0\.3\.0\b", pin), (
+    pin = _engine_pin()
+    floor = _declared_floor(pin)
+    assert floor, f"the pin has no >=X.Y.Z floor to read: {pin!r}"
+    assert floor >= (0, 3, 0), (
         f"the floor must be >=0.3.0 — the first release with Event.RECORD_ADDED "
         f"(H2-cap raised it for exactly this symbol); found {pin!r}"
+    )
+
+
+def test_the_engine_floor_is_the_release_that_ships_sealed_integrity():
+    """Bite H6-sealed-reader: `homestead_health/ledger_seam.py` imports
+    `IntegritySealError` and reads through `IntegrityLog._entries()`, which
+    skips the `SEAL_BOUNDARY_ACT` boundary row — neither exists before 0.11.0
+    (E6). A floor that lags this import is the same lie H2-cap's test guards
+    against for `RECORD_ADDED`, so this is that test's pin, moved forward.
+
+    Importing the symbols here, rather than just grepping the pin, is what
+    proves the floor: this fails on any engine that does not actually ship
+    them, independent of whatever `pyproject.toml` claims.
+    """
+    from homestead.keep.logs import IntegritySealError, SEAL_BOUNDARY_ACT
+
+    assert issubclass(IntegritySealError, Exception)
+    assert SEAL_BOUNDARY_ACT == "sealed"
+
+    pin = _engine_pin()
+    floor = _declared_floor(pin)
+    assert floor, f"the pin has no >=X.Y.Z floor to read: {pin!r}"
+    assert floor >= (0, 11, 0), (
+        f"the floor must be >=0.11.0 — the first release with sealed "
+        f"IntegrityLog reading (H6-sealed-reader raised it for exactly this "
+        f"symbol); found {pin!r}"
     )
