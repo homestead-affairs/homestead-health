@@ -1,9 +1,13 @@
 """`--smoke` proves every import survived packaging — measured, not asserted.
 
 `python -m homestead_health --smoke` says on the tin that it *"proves every
-import survived packaging"*. Before the W0 audit it imported four of the
-package's fifteen modules: `nestor_seam`, `packs.immunizations`, `reference`
-and `roster`. A wheel that shipped without `server`, `cli`, `doses`, `intake`,
+import survived packaging"*. Before the W0 audit it imported just four:
+`nestor_seam`, `packs.immunizations`, `reference` and `roster`. The
+package has sixteen modules today (it had fifteen then, before H6-sealed-reader
+added `ledger_seam`) — `tests/test_docs_drift.py` holds that number and the one
+in `__main__.py`'s own comment to the file list, because a count written in
+prose is the thing this file exists to stop anyone writing.
+A wheel that shipped without `server`, `cli`, `doses`, `intake`,
 `school_form`, `due`, `emergency`, `living`, `reference_lane`, `nestor_store`
 or `_egress` — a `packages = [...]` typo, a missing file, an import that only
 resolves from a checkout — printed `smoke ok` and went out the door. The claim

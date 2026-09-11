@@ -82,7 +82,7 @@ def test_no_module_in_the_package_reaches_a_payload():
     offenders = []
     for mod in _modules():
         for lineno, how in _payload_reaches(ast.parse(mod.read_text(encoding="utf-8"))):
-            offenders.append(f"{mod.relative_to(PKG.parent)}:{lineno} {how}")
+            offenders.append(f"{mod.relative_to(PKG.parent).as_posix()}:{lineno} {how}")
     assert not offenders, (
         "a surface reached a payload — content must arrive as serve()'s scored "
         f"value, never a raw payload (I-16). Found: {offenders}"
