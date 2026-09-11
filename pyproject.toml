@@ -58,7 +58,11 @@ classifiers = [
 # The engine is a pinned dependency, not territory: do not modify it, do not
 # propose changes to it from here, and do not generalize app logic into it.
 # Upstream changes are issues on homestead-affairs/homestead.
-dependencies = ["homestead-affairs>=0.3.0,<1.0"]
+#
+# Raised to 0.11.0 (H6-sealed-reader, found by the E6 audit): `living.py` now
+# imports `IntegritySealError`, absent before 0.11.0, so a lagging floor fails
+# at collection rather than at the first sealed household's audit.
+dependencies = ["homestead-affairs>=0.11.0,<1.0"]
 
 [project.optional-dependencies]
 # `pyyaml` and `tomli` are for tests/test_invariants_release.py, which reads the

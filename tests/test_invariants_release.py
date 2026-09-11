@@ -283,6 +283,12 @@ def test_the_engine_floor_is_the_release_that_ships_record_added():
     Importing the symbol here, rather than just grepping the pin, is what
     proves the floor: this test fails on any engine that does not actually
     ship `RECORD_ADDED`, independent of whatever `pyproject.toml` claims.
+
+    The floor check is *at least* 0.3.0, not *exactly* — a later bite (e.g.
+    H6-sealed-reader, 0.11.0) raises the floor again for a different symbol,
+    and that is a floor that still satisfies this one's claim. An exact-match
+    regex here would make every subsequent legitimate raise fail this test
+    for no reason connected to `RECORD_ADDED` at all.
     """
     from homestead.keep.logs import Event
 
@@ -292,7 +298,38 @@ def test_the_engine_floor_is_the_release_that_ships_record_added():
     deps = pyproject["project"]["dependencies"]
     pin = next((d for d in deps if d.startswith("homestead-affairs")), None)
     assert pin, "the engine pin is the one declared dependency, and it is missing"
-    assert re.search(r">=\s*0\.3\.0\b", pin), (
+    match = re.search(r">=\s*(\d+)\.(\d+)\.(\d+)", pin)
+    assert match, f"the pin has no >=X.Y.Z floor to read: {pin!r}"
+    assert tuple(int(g) for g in match.groups()) >= (0, 3, 0), (
         f"the floor must be >=0.3.0 — the first release with Event.RECORD_ADDED "
         f"(H2-cap raised it for exactly this symbol); found {pin!r}"
+    )
+
+
+def test_the_engine_floor_is_the_release_that_ships_sealed_integrity():
+    """Bite H6-sealed-reader: `homestead_health/ledger_seam.py` imports
+    `IntegritySealError` and reads through `IntegrityLog._entries()`, which
+    skips the `SEAL_BOUNDARY_ACT` boundary row — neither exists before 0.11.0
+    (E6). A floor that lags this import is the same lie H2-cap's test guards
+    against for `RECORD_ADDED`, so this is that test's pin, moved forward.
+
+    Importing the symbols here, rather than just grepping the pin, is what
+    proves the floor: this fails on any engine that does not actually ship
+    them, independent of whatever `pyproject.toml` claims.
+    """
+    from homestead.keep.logs import IntegritySealError, SEAL_BOUNDARY_ACT
+
+    assert issubclass(IntegritySealError, Exception)
+    assert SEAL_BOUNDARY_ACT == "sealed"
+
+    pyproject = tomllib.loads((_REPO / "pyproject.toml").read_text())
+    deps = pyproject["project"]["dependencies"]
+    pin = next((d for d in deps if d.startswith("homestead-affairs")), None)
+    assert pin, "the engine pin is the one declared dependency, and it is missing"
+    match = re.search(r">=\s*(\d+)\.(\d+)\.(\d+)", pin)
+    assert match, f"the pin has no >=X.Y.Z floor to read: {pin!r}"
+    assert tuple(int(g) for g in match.groups()) >= (0, 11, 0), (
+        f"the floor must be >=0.11.0 — the first release with sealed "
+        f"IntegrityLog reading (H6-sealed-reader raised it for exactly this "
+        f"symbol); found {pin!r}"
     )
