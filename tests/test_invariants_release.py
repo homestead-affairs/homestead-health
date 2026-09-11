@@ -298,9 +298,9 @@ def _engine_pin() -> str:
 @pytest.mark.parametrize(
     "pin, floor",
     [
-        ("homestead-affairs>=0.11.0,<1.0", (0, 11, 0)),      # the shipped shape
-        ("homestead-affairs<1.0,>=0.11.0", (0, 11, 0)),      # order swapped
-        ("homestead-affairs >= 0.11.0", (0, 11, 0)),         # PEP 508 spacing
+        ("homestead-affairs>=0.12.0,<1.0", (0, 12, 0)),      # the shipped shape
+        ("homestead-affairs<1.0,>=0.12.0", (0, 12, 0)),      # order swapped
+        ("homestead-affairs >= 0.12.0", (0, 12, 0)),         # PEP 508 spacing
         ("homestead-affairs>=0.9.10,<1.0", (0, 9, 10)),      # lexically > "0.11.0"
         ("homestead-affairs>=0.3.0,<1.0", (0, 3, 0)),        # the pre-H6 floor
         ("homestead-affairs>=0.11.0rc1", (0, 11, 0)),        # a pre-release floor
@@ -362,10 +362,12 @@ def test_the_engine_floor_is_the_release_that_ships_record_added():
 
 def test_the_engine_floor_is_the_release_that_ships_sealed_integrity():
     """Bite H6-sealed-reader: `homestead_health/ledger_seam.py` imports
-    `IntegritySealError` and reads through `IntegrityLog._entries()`, which
-    skips the `SEAL_BOUNDARY_ACT` boundary row — neither exists before 0.11.0
-    (E6). A floor that lags this import is the same lie H2-cap's test guards
-    against for `RECORD_ADDED`, so this is that test's pin, moved forward.
+    `IntegritySealError` and reads through the engine's own reader (then
+    `IntegrityLog._entries()`, now `read_entries()` — see H7-floor-0.12
+    below), which skips the `SEAL_BOUNDARY_ACT` boundary row; neither exists
+    before 0.11.0 (E6). A floor that lags this import is the same lie
+    H2-cap's test guards against for `RECORD_ADDED`, so this is that test's
+    pin, moved forward.
 
     Importing the symbols here, rather than just grepping the pin, is what
     proves the floor: this fails on any engine that does not actually ship
@@ -383,4 +385,33 @@ def test_the_engine_floor_is_the_release_that_ships_sealed_integrity():
         f"the floor must be >=0.11.0 — the first release with sealed "
         f"IntegrityLog reading (H6-sealed-reader raised it for exactly this "
         f"symbol); found {pin!r}"
+    )
+
+
+def test_the_engine_floor_is_the_release_that_ships_the_public_log_reader():
+    """Bite H7-floor-0.12: `homestead_health/ledger_seam.py` calls
+    `IntegrityLog.read_entries()` and maps its `IntegrityIncompleteError`
+    (E7-public-log-reader) to `LedgerUnreadable` — neither exists before
+    0.12.0. Same pin, moved forward again: a lagging floor here is the same
+    lie the two tests above already guard against for their own symbols.
+
+    Importing the symbol and probing the method here, rather than just
+    grepping the pin, is what proves the floor: this fails on any engine
+    that does not actually ship them, independent of whatever
+    `pyproject.toml` claims.
+    """
+    from homestead.keep.logs import IntegrityIncompleteError, IntegrityLog
+
+    assert issubclass(IntegrityIncompleteError, Exception)
+    assert callable(getattr(IntegrityLog, "read_entries", None)), (
+        "the installed engine has no IntegrityLog.read_entries"
+    )
+
+    pin = _engine_pin()
+    floor = _declared_floor(pin)
+    assert floor, f"the pin has no >=X.Y.Z floor to read: {pin!r}"
+    assert floor >= (0, 12, 0), (
+        f"the floor must be >=0.12.0 — the first release with the public "
+        f"IntegrityLog.read_entries() reader and IntegrityIncompleteError "
+        f"(H7-floor-0.12 raised it for exactly these symbols); found {pin!r}"
     )
