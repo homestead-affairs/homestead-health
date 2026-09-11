@@ -96,6 +96,34 @@ pip install -e ".[dev]"
 pytest -q          # bare, from a cold checkout. No out-of-band install step.
 ```
 
+## Entering your own information
+
+Records go into the household root — `$HOMESTEAD_HOME`, else `~/.homestead` —
+and nothing below needs the optional `entity` extra. Members are enrolled
+first (the roster mints the opaque id; the name is stored at `L4` for a
+minor), and a dose is entered whole, by subject, at the pack's rungs:
+
+```bash
+homestead-health ui                                      # enrolment, dose form, intake and records, on localhost
+homestead-health roster add "Mara Chen" --minor          # → subj-01
+homestead-health roster add "Ivo Chen" --minor           # → subj-02
+homestead-health dose add subj-01 MMR 2026-08-15 --next-due 2026-09-20 --provider "Dr. Lee" --lot AB12
+homestead-health dose list subj-01     # the list pane: a dose is L4, so "An immunization dose is on file · next due …"
+homestead-health dose show subj-01-01  # the detail pane: vaccine, date, provider, lot — rendered
+homestead-health today                 # "2 immunizations due this month", only where k ≥ 2 survives
+homestead-health export subj-01        # the school form, to exports/, both logs written, head anchor printed
+```
+
+A dose is one composed `L4` record (`homestead_health/doses.py`) keyed
+`<subject id>-<NN>` — a reference, never a name — with its `next_due` kept
+beside it as the `L2` date it is declared to be; the school form and the
+Today line read exactly these records. The browser UI (`ui`) has a *Roster*
+tab, a *Records* tab (the dose form, the subject's doses through the gate,
+the gated Today line) and an *Intake* tab that extracts vaccines, dates,
+providers and lot numbers from pasted text and fills the form with one click.
+Entity resolution, care decisions and the ledger check need
+`pip install 'homestead-health[entity]'` and say so when it is missing.
+
 > `homestead-affairs` is a pinned dependency consumed only through
 > `homestead.keep`'s public API. Do not modify it, propose changes to it, or
 > generalize app logic into it. Upstream changes are issues on

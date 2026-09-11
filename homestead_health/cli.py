@@ -7,6 +7,11 @@ is opened at ``<root>/nestor-health.db`` before any command runs.
 **Covenant**: no command here seals anything.  ``resolve`` proposes; ``decisions
 propose`` proposes.  Sealing is a human act, done through ``nestor ui`` or a
 caller that passes a ``verifier=`` — never through this CLI.
+
+**Nestor is optional.** ``roster``, ``dose``, ``today`` and ``export`` — the
+commands a household uses to enter and read its own records — need only the
+engine.  ``resolve``, ``decisions`` and ``verify`` need the ``entity`` extra and
+say so, in one line, when it is missing.
 """
 from __future__ import annotations
 
@@ -19,7 +24,6 @@ from homestead.keep import paths
 
 from homestead_health import nestor_seam
 from homestead_health.nestor_store import get_store
-from homestead_health.packs.immunizations import FIELDS, MATTER
 
 __all__ = ["run_cli"]
 
@@ -31,6 +35,29 @@ def _boot(household_root: Path | None = None) -> None:
     root.mkdir(parents=True, exist_ok=True)
     (root / "keep").mkdir(parents=True, exist_ok=True)
     nestor_seam.bind(root)
+
+
+def _needs_nestor() -> bool:
+    """True when the Nestor-backed command can run; otherwise says why not."""
+    if nestor_seam.available():
+        return True
+    print(f"  {nestor_seam.NOT_INSTALLED}", file=sys.stderr)
+    return False
+
+
+def _flag(args: Sequence[str], name: str) -> tuple[list[str], str | None]:
+    """Pull ``--name value`` out of ``args``; return the rest and the value."""
+    rest: list[str] = []
+    value: str | None = None
+    i = 0
+    while i < len(args):
+        if args[i] == name and i + 1 < len(args):
+            value = args[i + 1]
+            i += 2
+        else:
+            rest.append(args[i])
+            i += 1
+    return rest, value
 
 
 # ── resolve ─────────────────────────────────────────────────────────────────
@@ -47,6 +74,8 @@ def _cmd_resolve(args: Sequence[str]) -> int:
     valid = ("provider", "vaccine")
     if domain not in valid:
         print(f"unknown domain {domain!r} — one of {valid}", file=sys.stderr)
+        return 1
+    if not _needs_nestor():
         return 1
 
     _boot()
@@ -81,6 +110,8 @@ def _cmd_decisions(args: Sequence[str]) -> int:
     sub = args[0]
     rest = args[1:]
 
+    if not _needs_nestor():
+        return 1
     _boot()
     store = get_store()
     dm = nestor_seam.decisions_for("care", store)
@@ -133,49 +164,188 @@ def _cmd_decisions(args: Sequence[str]) -> int:
         return 1
 
 
-# ── put (record input) ──────────────────────────────────────────────────────
+# ── dose (record input, by subject) ─────────────────────────────────────────
 
-def _cmd_put(args: Sequence[str]) -> int:
-    """``put <field> <value>`` — store an immunization record field."""
-    if len(args) < 2:
-        print("usage: homestead-health put <field> <value>", file=sys.stderr)
-        print(f"  fields: {', '.join(FIELDS)}", file=sys.stderr)
-        return 1
+_DOSE_USAGE = """\
+usage: homestead-health dose add <subject> <vaccine> <date> [--next-due D] [--provider P]
+                                 [--lot L] [--source S] [--notes N]
+       homestead-health dose list <subject>
+       homestead-health dose show <dose-id>
+  e.g.: homestead-health dose add subj-01 MMR 2026-08-15 --next-due 2026-09-20 --provider "Dr. Lee"
+"""
 
-    field = args[0]
-    value = " ".join(args[1:])
 
-    if field not in FIELDS:
-        print(f"unknown field {field!r} — fields: {', '.join(FIELDS)}", file=sys.stderr)
-        return 1
+def _cmd_dose(args: Sequence[str]) -> int:
+    """``dose <add|list|show> ...`` — a subject's immunization doses.
 
+    ``add`` records one dose for an enrolled subject, composed to the pack's
+    rungs (a dose is L4; no rung is chosen here). ``list`` shows the subject's
+    doses as the list pane would — the derived form, since a dose is L4 — with
+    each next-due date (L2) beside it. ``show`` opens one dose in the detail
+    pane, where it renders in full.
+    """
+    from homestead.keep.dates import UnparseableDate
     from homestead.keep.record import Sidecar
-    from homestead.keep.rungs import Classified
+    from homestead.keep.rungs import Disposition, Surface, serve
 
-    rung = FIELDS[field]
-    derived = None
-    if rung.value in ("L3", "L4"):
-        derived = f"A {field.replace('_', ' ')} is on file"
+    from homestead_health import doses
+    from homestead_health.roster import Roster
+
+    if not args:
+        print(_DOSE_USAGE, end="", file=sys.stderr)
+        return 1
+    sub, rest = args[0], list(args[1:])
 
     _boot()
     sidecar = Sidecar()
-    item = Classified(rung, value, derived)
-    item_id = f"cli-{field}-{hash(value) & 0xFFFFFFFF:08x}"
-    sidecar.put(MATTER, field, item_id, item, overwrite=True)
+    roster = Roster(sidecar)
 
-    print(f"  stored: {MATTER}/{field}/{item_id}")
-    print(f"  rung:   {rung.value}")
-
-    if field == "provider":
+    if sub == "add":
+        rest, next_due = _flag(rest, "--next-due")
+        rest, provider = _flag(rest, "--provider")
+        rest, lot = _flag(rest, "--lot")
+        rest, source = _flag(rest, "--source")
+        rest, notes = _flag(rest, "--notes")
+        if len(rest) < 3:
+            print(_DOSE_USAGE, end="", file=sys.stderr)
+            return 1
+        subject, vaccine, date = rest[0], rest[1], rest[2]
         try:
-            store = get_store()
-            resolver = nestor_seam.resolver_for("provider", store)
-            resolver.propose(value, value, reason=f"entered as {field}")
-            print(f"  proposed to provider resolver: {value}")
-        except Exception:
-            pass
+            ref = doses.add_dose(
+                sidecar, roster, subject=subject, vaccine=vaccine, dose_date=date,
+                next_due=next_due, provider=provider, lot_number=lot, source=source,
+                notes=notes,
+            )
+        except (ValueError, UnparseableDate) as exc:
+            print(f"  refused: {exc}", file=sys.stderr)
+            return 1
+        print(f"  recorded: {ref}  (rung L4)")
+        if next_due:
+            print(f"  next due: {next_due}")
+        if provider and nestor_seam.available():
+            try:
+                resolver = nestor_seam.resolver_for("provider", get_store())
+                resolver.propose(provider, provider, reason="entered as provider")
+                print(f"  proposed to provider resolver: {provider}")
+            except Exception:
+                pass
+        return 0
 
+    if sub == "list":
+        if not rest:
+            print(_DOSE_USAGE, end="", file=sys.stderr)
+            return 1
+        subject = rest[0]
+        if subject not in roster:
+            print(f"  {subject}: not on the roster", file=sys.stderr)
+            return 1
+        found = doses.doses_of(sidecar, subject)
+        if not found:
+            print(f"  {subject}: no doses on file — `homestead-health dose add {subject} <vaccine> <date>`")
+            return 0
+        due_by = {ref.id: rec for ref, rec in doses.next_due_of(sidecar, subject)}
+        print(f"  {subject}: {len(found)} dose(s)")
+        for ref, record in found:
+            served = serve(record, Surface.S1_LIST)
+            if served.disposition is Disposition.DENY:
+                continue
+            line = f"  [{served.rung.value}]  {ref.id}: {served.value}"
+            nxt = due_by.get(ref.id)
+            if nxt is not None:
+                nxt_served = serve(nxt, Surface.S1_LIST)
+                if nxt_served.disposition is Disposition.RENDER:
+                    line += f"  ·  next due {nxt_served.value}"
+            print(line)
+        return 0
+
+    if sub == "show":
+        if not rest:
+            print(_DOSE_USAGE, end="", file=sys.stderr)
+            return 1
+        try:
+            ref = doses.dose_ref(rest[0])
+        except ValueError as exc:
+            print(f"  {exc}", file=sys.stderr)
+            return 1
+        match = [rec for r, rec in doses.doses_of(sidecar, ref.subject) if r.id == ref.id]
+        if not match:
+            print(f"  {ref.id}: no such dose", file=sys.stderr)
+            return 1
+        served = serve(match[0], Surface.S1_DETAIL)
+        print(f"  {ref.id}  [{served.rung.value}]")
+        if served.disposition is Disposition.RENDER and isinstance(served.value, dict):
+            for name, value in served.value.items():
+                print(f"  {name.replace('_', ' ')}: {value}")
+        elif served.disposition is Disposition.RENDER:
+            print(f"  {served.value}")
+        else:
+            print("  This record is sealed and is not shown here.")
+        return 0
+
+    print(f"unknown subcommand {sub!r} — one of: add, list, show", file=sys.stderr)
+    return 1
+
+
+# ── today ────────────────────────────────────────────────────────────────────
+
+def _cmd_today(args: Sequence[str]) -> int:
+    """``today [--today YYYY-MM-DD]`` — the Today line, if a count survives the
+    k ≥ 2 re-identification check over the household (H-2, I-31). Nothing is
+    drawn when nothing survives; that is an absence, never a zero."""
+    import datetime as dt
+
+    from homestead.keep.record import Sidecar
+
+    from homestead_health import doses
+    from homestead_health.roster import Roster
+
+    rest, today = _flag(args, "--today")
+    today = today or dt.date.today().isoformat()
+
+    _boot()
+    sidecar = Sidecar()
+    line = doses.today_line(sidecar, Roster(sidecar), today=today)
+    print(f"  {line}" if line else "  (nothing to show)")
     return 0
+
+
+# ── export (the school form) ─────────────────────────────────────────────────
+
+def _cmd_export(args: Sequence[str]) -> int:
+    """``export <subject>`` — the school form: the subject's immunization
+    history out through S4 with a declared purpose, one entry to each log,
+    the head anchor printed for the operator to record off the machine."""
+    from homestead.keep.export import ExportRefused
+    from homestead.keep.record import Sidecar
+
+    from homestead_health import doses
+    from homestead_health.school_form import export_history
+
+    if not args:
+        print("usage: homestead-health export <subject>", file=sys.stderr)
+        return 1
+    subject = args[0]
+
+    _boot()
+    sidecar = Sidecar()
+    try:
+        receipt = export_history(subject, [rec for _, rec in doses.doses_of(sidecar, subject)])
+    except ExportRefused as exc:
+        print(f"  refused: {exc}", file=sys.stderr)
+        return 1
+    print(f"  exported: {receipt.artifact}")
+    print(f"  head:     {receipt.head}  (record this off the machine)")
+    return 0
+
+
+# ── put (retired) ────────────────────────────────────────────────────────────
+
+def _cmd_put(args: Sequence[str]) -> int:
+    """``put`` is retired: a lone field under a random id was a record nothing
+    could find. A dose is entered whole, by subject, with ``dose add``."""
+    print("  `put` is retired — a dose is entered whole, by subject:", file=sys.stderr)
+    print(_DOSE_USAGE, end="", file=sys.stderr)
+    return 1
 
 
 # ── roster ──────────────────────────────────────────────────────────────────
@@ -232,6 +402,8 @@ def _cmd_roster(args: Sequence[str]) -> int:
 
 def _cmd_verify(args: Sequence[str]) -> int:
     """``verify`` — verify the Nestor ledger chain."""
+    if not _needs_nestor():
+        return 1
     _boot()
     ok = nestor_seam.verify_ledger()
     if ok:
@@ -265,8 +437,11 @@ def _cmd_ui(args: Sequence[str]) -> int:
 COMMANDS = {
     "resolve": (_cmd_resolve, "resolve <domain> <surface> — entity resolution"),
     "decisions": (_cmd_decisions, "decisions <propose|check|list> — care decisions"),
-    "put": (_cmd_put, "put <field> <value> — store an immunization record"),
     "roster": (_cmd_roster, "roster <add|list> — household members"),
+    "dose": (_cmd_dose, "dose <add|list|show> — a subject's immunization doses"),
+    "today": (_cmd_today, "today — the gated Today line"),
+    "export": (_cmd_export, "export <subject> — the school form, to exports/"),
+    "put": (_cmd_put, "put — retired; use `dose add`"),
     "verify": (_cmd_verify, "verify — check the Nestor ledger chain"),
     "ui": (_cmd_ui, "ui — intake and dashboard in the browser"),
 }
