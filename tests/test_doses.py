@@ -16,6 +16,7 @@ counts next-due dates. This file holds the shape those consumers rely on:
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -305,6 +306,68 @@ def test_a_raced_id_is_refused_by_the_store_and_nothing_is_written(household, mo
     monkeypatch.setattr(doses, "_next_number", recount)
     assert doses.add_dose(store, roster, subject=a, vaccine="DTaP",
                           dose_date="2026-08-16").id == "subj-01-02"
+
+
+# ── H2-cap: the engine floor raise, spent (RECORD_ADDED, not RECORD_SYNCED) ──
+
+
+def test_adding_a_dose_logs_record_added_not_record_synced(household):
+    """Bite H2-cap raised the engine floor to 0.3.0 for exactly this symbol:
+    before it, the closed enum had no `RECORD_ADDED` and `add_dose` borrowed
+    `RECORD_SYNCED` — "the closest closed-enum act the pinned engine has for
+    'a record was stored'", per the comment this bite removes. With the floor
+    raised, the borrowed act is a lie worth catching: a dose was *added*, not
+    *synced* (nothing sends anywhere), and `RECORD_SYNCED` is reserved for the
+    sync story bite E4/L5 actually builds.
+    """
+    store, roster, a, _ = household
+    ref = doses.add_dose(store, roster, subject=a, vaccine="MMR", dose_date="2026-08-15")
+
+    lines = VisibleLog().read()
+    dose_lines = [l for l in lines if l["ref"] == ref.id]
+    assert len(dose_lines) == 1, f"expected exactly one log line for {ref.id}, got {dose_lines}"
+    assert dose_lines[0]["event"] == "record_added"
+    assert not any(l["event"] == "record_synced" for l in lines), (
+        "no line in the visible log may claim record_synced for a plain add"
+    )
+
+
+def test_no_module_in_the_package_still_logs_record_synced():
+    """The grep this bite's *done when* names, run for real rather than by hand.
+    `doses.add_dose` was one of two writers carrying the RECORD_SYNCED debt —
+    `Roster.add` carried "the same debt" by the removed comment's own words —
+    so the check is over the whole package, not just this file's writer,
+    catching a third module that copies the old pattern just as surely."""
+    import homestead_health
+
+    pkg = Path(homestead_health.__file__).resolve().parent
+    offenders = [
+        f"{p.relative_to(pkg.parent)}:{i}: {line.strip()}"
+        for p in sorted(pkg.rglob("*.py"))
+        for i, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1)
+        if "RECORD_SYNCED" in line
+    ]
+    assert not offenders, (
+        f"RECORD_SYNCED must not appear anywhere under homestead_health/: {offenders}"
+    )
+
+
+def test_the_record_synced_scan_fires_on_a_plant(tmp_path):
+    """The scan above, held honest (a scan that has never fired has not been
+    shown to check anything): planting exactly the pattern it forbids, in a
+    file the real scan never sees, proves the substring check actually catches
+    it rather than passing by construction."""
+    planted = tmp_path / "planted_writer.py"
+    planted.write_text(
+        "from homestead.keep.logs import Event, VisibleLog\n"
+        "VisibleLog().record(Event.RECORD_SYNCED, ref=('subj-99-01',))\n"
+    )
+    offenders = [
+        f"{planted.name}:{i}"
+        for i, line in enumerate(planted.read_text(encoding="utf-8").splitlines(), 1)
+        if "RECORD_SYNCED" in line
+    ]
+    assert offenders, "the scan must catch a planted RECORD_SYNCED reference"
 
 
 def test_a_malformed_subject_is_refused_as_export_refused_not_a_value_error(household):

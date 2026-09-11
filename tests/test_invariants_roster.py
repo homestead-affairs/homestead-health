@@ -252,6 +252,10 @@ def test_the_visible_log_read_back_holds_no_name(tmp_path, monkeypatch):
     assert str(child) in blob
     assert "Synthetic" not in blob and "Child" not in blob
 
+    # H2-cap: enrolling carries the same RECORD_ADDED-not-RECORD_SYNCED debt
+    # `homestead_health/doses.py`'s comment named — this is where it is paid.
+    assert entries[-1]["event"] == "record_added"
+
 
 # ── the persisted subject survives an actual process exit ────────────────────
 
