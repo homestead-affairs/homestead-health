@@ -12,6 +12,7 @@ from __future__ import annotations
 import http.client
 import json
 import threading
+import time
 
 import pytest
 
@@ -388,7 +389,9 @@ def test_a_refused_body_is_drained_before_the_socket_closes():
 def test_a_refused_content_length_reaches_the_drain(ui, monkeypatch):
     """The refusal path must actually call the drain on the live connection —
     the unit test above proves what draining does, this proves it happens,
-    once, after the answer is on the wire (the client read a 400)."""
+    once, after the answer is on the wire (the client read a 400).  The client
+    can hold its 400 before the handler thread reaches the drain, so the check
+    waits for the call rather than asserting the instant the answer lands."""
     calls = []
     real = server._drain
 
@@ -400,4 +403,7 @@ def test_a_refused_content_length_reaches_the_drain(ui, monkeypatch):
     status, raw = _raw(ui, "POST", "/api/dose", body="{}",
                        headers={"Content-Length": "abc"})
     assert status == 400 and json.loads(raw)["error"]
+    deadline = time.monotonic() + 5
+    while not calls and time.monotonic() < deadline:
+        time.sleep(0.01)
     assert len(calls) == 1 and hasattr(calls[0], "recv")
