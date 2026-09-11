@@ -185,6 +185,7 @@ def _cmd_dose(args: Sequence[str]) -> int:
     pane, where it renders in full.
     """
     from homestead.keep.dates import UnparseableDate
+    from homestead.keep.export import ExportRefused
     from homestead.keep.record import Sidecar
     from homestead.keep.rungs import Disposition, Surface, serve
 
@@ -206,8 +207,16 @@ def _cmd_dose(args: Sequence[str]) -> int:
         rest, lot = _flag(rest, "--lot")
         rest, source = _flag(rest, "--source")
         rest, notes = _flag(rest, "--notes")
-        if len(rest) < 3:
+        # Exactly three positionals. `< 3` silently dropped the extras, so
+        # `dose add subj-01 MMR 2026-08-15 2026-09-20` — the flag forgotten —
+        # recorded the dose with **no next-due date at all** and said nothing:
+        # a dropped fact reported as a success, which is the shape H-4 refuses
+        # ("a recorded gap, never a silent promotion to certainty").
+        if len(rest) != 3:
             print(_DOSE_USAGE, end="", file=sys.stderr)
+            if len(rest) > 3:
+                print("  (a dose is subject, vaccine and date — everything else "
+                      "is a named flag)", file=sys.stderr)
             return 1
         subject, vaccine, date = rest[0], rest[1], rest[2]
         try:
@@ -216,6 +225,22 @@ def _cmd_dose(args: Sequence[str]) -> int:
                 next_due=next_due, provider=provider, lot_number=lot, source=source,
                 notes=notes,
             )
+        # Every refusal `add_dose` documents, in one place. ExportRefused is a
+        # PermissionError and FileExistsError an OSError — neither is a
+        # ValueError, so catching only ValueError turned the two most likely
+        # real-world refusals (the operator typing a *name* where the subject id
+        # goes; a second process minting the same id) into a traceback that also
+        # echoed whatever was typed.
+        except ExportRefused as exc:
+            print(f"  refused: {exc}", file=sys.stderr)
+            print("  a subject is the roster's opaque id (subj-01), never a name "
+                  "— `homestead-health roster list`", file=sys.stderr)
+            return 1
+        except FileExistsError:
+            print("  refused: another writer took that dose id between counting "
+                  "and writing. Nothing was stored (I-9) — run the same command "
+                  "again.", file=sys.stderr)
+            return 1
         except (ValueError, UnparseableDate) as exc:
             print(f"  refused: {exc}", file=sys.stderr)
             return 1
@@ -246,15 +271,16 @@ def _cmd_dose(args: Sequence[str]) -> int:
         due_by = {ref.id: rec for ref, rec in doses.next_due_of(sidecar, subject)}
         print(f"  {subject}: {len(found)} dose(s)")
         for ref, record in found:
-            served = serve(record, Surface.S1_LIST)
-            if served.disposition is Disposition.DENY:
+            row = doses.list_row(record)
+            if row is None:
                 continue
-            line = f"  [{served.rung.value}]  {ref.id}: {served.value}"
+            rung, text = row
+            line = f"  [{rung.value}]  {ref.id}: {text}"
             nxt = due_by.get(ref.id)
             if nxt is not None:
-                nxt_served = serve(nxt, Surface.S1_LIST)
-                if nxt_served.disposition is Disposition.RENDER:
-                    line += f"  ·  next due {nxt_served.value}"
+                nxt_text = doses.next_due_text(nxt)
+                if nxt_text is not None:
+                    line += f"  ·  next due {nxt_text}"
             print(line)
         return 0
 
@@ -299,12 +325,18 @@ def _cmd_today(args: Sequence[str]) -> int:
     from homestead_health import doses
     from homestead_health.roster import Roster
 
-    rest, today = _flag(args, "--today")
+    _rest, today = _flag(args, "--today")
     today = today or dt.date.today().isoformat()
 
     _boot()
     sidecar = Sidecar()
-    line = doses.today_line(sidecar, Roster(sidecar), today=today)
+    try:
+        line = doses.today_line(sidecar, Roster(sidecar), today=today)
+    except (ValueError, TypeError) as exc:
+        # `--today garbage` reached `parse_deadline` and came back out as a
+        # traceback. The engine refuses to guess at a date (BUG-1); so does this.
+        print(f"  refused: {exc}", file=sys.stderr)
+        return 1
     print(f"  {line}" if line else "  (nothing to show)")
     return 0
 
@@ -330,7 +362,7 @@ def _cmd_export(args: Sequence[str]) -> int:
     sidecar = Sidecar()
     try:
         receipt = export_history(subject, [rec for _, rec in doses.doses_of(sidecar, subject)])
-    except ExportRefused as exc:
+    except (ExportRefused, ValueError) as exc:
         print(f"  refused: {exc}", file=sys.stderr)
         return 1
     print(f"  exported: {receipt.artifact}")

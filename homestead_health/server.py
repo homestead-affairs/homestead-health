@@ -28,6 +28,28 @@ from __future__ import annotations
 
 __all__ = ["build_server", "serve"]
 
+#: The most a request body may be, in bytes. A localhost UI still reads from a
+#: socket, and an unbounded `rfile.read(n)` is an unbounded allocation decided by
+#: whatever sent the header. One mebibyte is far more than a dose form, a roster
+#: name or a pasted clinic card; past it the answer is 413, before a byte is read.
+_MAX_BODY = 1024 * 1024
+
+
+class _BadBody(Exception):
+    """A request body this server answers about instead of dropping the socket.
+
+    Carries the status and the **fixed** sentence to send. Fixed on purpose: a
+    body refusal says what was wrong with the *envelope* (not JSON, not an
+    object, too large, bad length) and never echoes the bytes back, so a refusal
+    cannot become a reflector for whatever was posted (I-15's shape at the
+    boundary: a message may name a field, never carry a value).
+    """
+
+    def __init__(self, status: int, message: str) -> None:
+        super().__init__(message)
+        self.status = status
+        self.message = message
+
 
 # ── the page ──────────────────────────────────────────────────────────────
 
@@ -476,6 +498,7 @@ def build_server(*, host: str = "127.0.0.1", port: int = 8384):
 
     from homestead.keep import paths
     from homestead.keep.dates import UnparseableDate
+    from homestead.keep.export import ExportRefused
     from homestead.keep.record import Sidecar
     from homestead.keep.rungs import Disposition, Surface, serve as rung_serve
 
@@ -514,9 +537,55 @@ def build_server(*, host: str = "127.0.0.1", port: int = 8384):
             self.end_headers()
             self.wfile.write(body)
 
+        def _discard(self, n):
+            """Read and throw away up to `n` bytes, a chunk at a time."""
+            while n > 0:
+                chunk = self.rfile.read(min(n, 65536))
+                if not chunk:
+                    return
+                n -= len(chunk)
+
         def _body(self):
-            n = int(self.headers.get("Content-Length", 0))
-            return json.loads(self.rfile.read(n)) if n else {}
+            """The request body as a JSON object, or `_BadBody` with the answer.
+
+            Every branch here was a **dropped connection** before the W0 audit:
+            a bad `Content-Length` (`int("abc")`), a malformed body
+            (`JSONDecodeError`), a body that is JSON but not an object (`[1,2]`,
+            then `.get` on a list), and a body of any size at all (three
+            megabytes were read into memory and accepted). None of them
+            answered; each raised out of `do_POST`, so the operator's browser
+            saw a reset and the traceback went to the terminal. A localhost UI
+            is still a parser at a socket: it answers, with a status, or it is
+            not a door you can reason about.
+            """
+            raw_length = self.headers.get("Content-Length")
+            if raw_length is None:
+                return {}
+            try:
+                n = int(raw_length)
+            except (TypeError, ValueError):
+                raise _BadBody(400, "Content-Length is not a number")
+            if n < 0:
+                raise _BadBody(400, "Content-Length is not a number")
+            if n > _MAX_BODY:
+                # Refused on the *header*, so nothing oversized is ever held in
+                # memory — but the declared bytes are still on their way up the
+                # socket, and answering into a client that is mid-send gets the
+                # answer thrown away. So read them off and discard them, in
+                # bounded chunks (memory is the chunk, never the body), up to a
+                # hard ceiling past which the sender is not owed a conversation.
+                self._discard(min(n, _MAX_BODY * 2))
+                raise _BadBody(413, f"a request body is at most {_MAX_BODY} bytes")
+            if n == 0:
+                return {}
+            raw = self.rfile.read(n)
+            try:
+                body = json.loads(raw)
+            except (ValueError, UnicodeDecodeError):
+                raise _BadBody(400, "the request body is not JSON")
+            if not isinstance(body, dict):
+                raise _BadBody(400, "the request body is a JSON object")
+            return body
 
         # ── GET ───────────────────────────────────────────────────────
 
@@ -564,15 +633,19 @@ def build_server(*, host: str = "127.0.0.1", port: int = 8384):
             for ref, record in doses.doses_of(sidecar, subject):
                 # The list pane: a dose is L4, so this is its derived form —
                 # the vaccine and the date never sit beside the subject here.
-                served = rung_serve(record, Surface.S1_LIST)
-                if served.disposition is Disposition.DENY:
+                # `doses.list_row` is the one place that rule lives, shared with
+                # the CLI's `dose list`, and it refuses to print a payload even
+                # for a record whose stored rung did not survive as L4.
+                row = doses.list_row(record)
+                if row is None:
                     continue
-                entry = {"id": ref.id, "rung": served.rung.value, "text": str(served.value)}
+                rung, text = row
+                entry = {"id": ref.id, "rung": rung.value, "text": text}
                 nxt = due_by.get(ref.id)
                 if nxt is not None:
-                    nxt_served = rung_serve(nxt, Surface.S1_LIST)
-                    if nxt_served.disposition is Disposition.RENDER:
-                        entry["next_due"] = str(nxt_served.value)
+                    nxt_text = doses.next_due_text(nxt)
+                    if nxt_text is not None:
+                        entry["next_due"] = nxt_text
                 out.append(entry)
             self._json({"doses": out})
 
@@ -637,7 +710,10 @@ def build_server(*, host: str = "127.0.0.1", port: int = 8384):
 
         def do_POST(self):
             p = urllib.parse.urlparse(self.path).path
-            body = self._body()
+            try:
+                body = self._body()
+            except _BadBody as bad:
+                return self._json({"ok": False, "error": bad.message}, bad.status)
 
             if p == "/api/extract":
                 return self._post_extract(body)
@@ -649,6 +725,8 @@ def build_server(*, host: str = "127.0.0.1", port: int = 8384):
 
         def _post_extract(self, body):
             text = body.get("text", "")
+            if not isinstance(text, str):
+                return self._json({"error": "text is text"}, 400)
             items = extract(text)
             self._json({"items": [
                 {"kind": e.kind, "text": e.text, "value": e.value,
@@ -669,10 +747,27 @@ def build_server(*, host: str = "127.0.0.1", port: int = 8384):
                     source=body.get("source"),
                     notes=body.get("notes"),
                 )
-            except (ValueError, UnparseableDate) as exc:
+            # `add_dose` refuses in four types and only two were ValueErrors.
+            # ExportRefused (a PermissionError — a subject that is not one clean
+            # reference segment, e.g. a *name* typed into the id box) and
+            # FileExistsError (I-9: a second process took this id between the
+            # count and the write) both fell through to the catch-all, which
+            # answered 500 — a server fault for an input the operator can fix —
+            # and echoed `str(exc)` for *any* exception, so the next exception
+            # type to carry a field value would have carried it to the browser.
+            except (ValueError, UnparseableDate, ExportRefused) as exc:
                 return self._json({"ok": False, "error": str(exc)}, 400)
-            except Exception as exc:
-                return self._json({"ok": False, "error": str(exc)}, 500)
+            except FileExistsError:
+                return self._json({"ok": False, "error": (
+                    "another writer took that dose id between counting and "
+                    "writing. Nothing was stored (I-9) — submit it again."
+                )}, 409)
+            except Exception:
+                # Last resort: a fixed sentence. Whatever went wrong, the
+                # operator is not the right reader for its message.
+                return self._json({"ok": False, "error": (
+                    "the dose was not recorded. Nothing was stored."
+                )}, 500)
 
             provider = (body.get("provider") or "").strip()
             if provider and nestor_ok:
@@ -685,15 +780,39 @@ def build_server(*, host: str = "127.0.0.1", port: int = 8384):
             self._json({"ok": True, "id": ref.id, "rung": "L4"})
 
         def _post_roster(self, body):
-            name = body.get("name", "").strip()
+            name = body.get("name", "")
             minor = body.get("minor", False)
+            # `body.get("name", "").strip()` raised AttributeError on any
+            # non-string — `{"name": 5}` dropped the connection with a traceback.
+            if not isinstance(name, str):
+                return self._json({"ok": False, "error": "name is text"}, 400)
+            name = name.strip()
             if not name:
                 return self._json({"ok": False, "error": "name is required"}, 400)
+            # Minority is not a truthiness question. It IS the name's rung (L4
+            # minor, L3 adult), so a non-boolean is refused rather than coerced:
+            # `bool("false")` was True — over-protecting, the safe direction, but
+            # still not what was sent — and the tempting tightening the other way
+            # (`minor is True`) would read the string "true" as an *adult*, which
+            # is the fail-open direction `Roster.is_minor` calls catastrophic.
+            # Refusing is the only reading that is wrong in neither direction.
+            if not isinstance(minor, bool):
+                return self._json(
+                    {"ok": False, "error": "minor is true or false"}, 400)
             try:
-                ref = roster.add(name=name, minor=bool(minor))
+                ref = roster.add(name=name, minor=minor)
                 self._json({"ok": True, "id": str(ref)})
-            except Exception as exc:
-                self._json({"ok": False, "error": str(exc)}, 500)
+            except ValueError as exc:
+                self._json({"ok": False, "error": str(exc)}, 400)
+            except FileExistsError:
+                self._json({"ok": False, "error": (
+                    "another writer took that subject id. Nothing was stored "
+                    "(I-9) — submit it again."
+                )}, 409)
+            except Exception:
+                self._json({"ok": False, "error": (
+                    "the member was not enrolled. Nothing was stored."
+                )}, 500)
 
     return http.server.HTTPServer((host, port), _H)
 

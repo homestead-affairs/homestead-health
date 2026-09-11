@@ -46,7 +46,7 @@ from typing import Any
 from homestead.keep.dates import parse_deadline
 from homestead.keep.logs import Event, VisibleLog
 from homestead.keep.record import Sidecar
-from homestead.keep.rungs import Classified, Disposition, Surface, compose, serve
+from homestead.keep.rungs import Classified, Disposition, Rung, Surface, compose, serve
 
 from homestead_health import due
 from homestead_health._egress import validate_subject
@@ -54,7 +54,7 @@ from homestead_health.packs.immunizations import FIELDS, MATTER
 from homestead_health.roster import Roster
 
 __all__ = ["DoseRef", "DERIVED", "DOSE_ITEM", "NEXT_DUE_ITEM", "add_dose", "doses_of",
-           "next_due_of", "dose_ref", "today_line"]
+           "next_due_of", "dose_ref", "list_row", "next_due_text", "today_line"]
 
 DOSE_ITEM = "dose"
 NEXT_DUE_ITEM = "next_due"
@@ -142,6 +142,20 @@ def add_dose(
     and a dose or next-due date the engine cannot read. Writes the composed
     dose (L4) and, if given, the next-due date (L2), then one `VisibleLog`
     line carrying the dose id alone.
+
+    **Every refusal a caller must handle, by type** — the list is here because a
+    surface that catches three of the four turns the fourth into a traceback,
+    which is what both surfaces did before the W0 audit:
+
+    * `ExportRefused` (a `PermissionError`, from `_egress.validate_subject`) —
+      the subject is not one clean reference segment. This is the *likely*
+      operator mistake: typing the person's name where the id goes.
+    * `ValueError` — the subject is not on the roster, or the vaccine is empty.
+    * `UnparseableDate` (a `ValueError`) — a date the engine will not guess at.
+    * `FileExistsError` — the id this call minted was taken between the count
+      and the write, by a second process adding a dose for the same subject.
+      The store refuses to clobber (I-9) and **nothing is written**; the id is
+      not reused, because the next call recounts. Retrying is the whole fix.
     """
     sid = _subject_id(roster, subject)
     vaccine_name = _clean(vaccine)
@@ -168,6 +182,11 @@ def add_dose(
         store.put(MATTER, NEXT_DUE_ITEM, dose_id, Classified(FIELDS["next_due"], next_iso))
 
     visible = log if log is not None else VisibleLog()
+    # RECORD_SYNCED is the closest closed-enum act the pinned engine has for "a
+    # record was stored" — it has no RECORD_ADDED, and the enum is closed, so
+    # there is nothing truer to say here yet. Plan bite **H2-cap** raises the
+    # engine floor to the release that adds `Event.RECORD_ADDED` and switches
+    # this one line to it; the roster (`roster.add`) carries the same debt.
     visible.record(Event.RECORD_SYNCED, ref=(dose_id,))
     return DoseRef(id=dose_id, subject=sid)
 
@@ -198,6 +217,49 @@ def next_due_of(store: Sidecar, subject: object) -> list[tuple[DoseRef, Classifi
     return _of(store, subject, NEXT_DUE_ITEM)
 
 
+def list_row(record: Classified) -> tuple[Rung, str] | None:
+    """What an ambient list row may carry for one dose — or `None`, drawn as nothing.
+
+    Both surfaces (the CLI's `dose list` and the browser's `/api/doses`) go
+    through here, so the rule cannot hold in one and not the other — the
+    `_egress` lesson: do not keep two validators for the same rule.
+
+    The rule is that **a list row carries the derived sentence, never the
+    record**. A dose composes to `L4` (the vaccine), so the gate derives here
+    by construction and `Served.value` already *is* `DERIVED`. The `RENDER`
+    branch is refused anyway rather than printed: a dose that renders on a list
+    surface is a record whose stored rung did not survive as `L4` — a
+    hand-edit, a restore of a half-written tree, a future writer that skipped
+    `add_dose` — and printing `Served.value` there would put the vaccine, the
+    dose date and the operator's notes on an ambient row beside the subject id,
+    which is exactly what the pack's `dose_date` declaration promises cannot
+    happen ("the declaration is per-field, the protection is per-record").
+    Failing closed to the one sentence costs nothing: the detail pane is one
+    click away and is where a dose is meant to be read.
+
+    `DENY` (an `L5`, or a rung that did not read at all) is `None` — dropped
+    with no count left behind, the way `serve_all` drops a denial.
+    """
+    served = serve(record, Surface.S1_LIST)
+    if served.disposition is Disposition.DENY:
+        return None
+    return served.rung, DERIVED
+
+
+def next_due_text(record: Classified) -> str | None:
+    """The next-due date an ambient row may carry, or `None`.
+
+    `next_due` is declared `L2` — a date naming nobody by itself — and `L2`
+    renders on a list surface, so the served value *is* the stored ISO date.
+    Anything else (a rung that did not survive as `L2`, so the gate derives or
+    denies) is not a date and is not put where a date goes.
+    """
+    served = serve(record, Surface.S1_LIST)
+    if served.disposition is not Disposition.RENDER:
+        return None
+    return str(served.value)
+
+
 def today_line(store: Sidecar, roster: Roster, *, today: object) -> str | None:
     """The Today line over the whole household, or `None` (drawn as nothing).
 
@@ -210,11 +272,11 @@ def today_line(store: Sidecar, roster: Roster, *, today: object) -> str | None:
     deadlines = []
     for ref in roster.subjects():
         for _dose, record in next_due_of(store, ref):
-            served = serve(record, Surface.S1_LIST)
-            if served.disposition is not Disposition.RENDER:
+            text = next_due_text(record)
+            if text is None:
                 continue
             try:
-                deadlines.append(parse_deadline(str(served.value)))
+                deadlines.append(parse_deadline(text))
             except ValueError:
                 continue
     count = due.due_this_month(deadlines, today=today)

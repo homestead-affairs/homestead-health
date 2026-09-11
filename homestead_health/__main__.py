@@ -48,11 +48,39 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if "--smoke" in argv:
-        from homestead_health import nestor_seam  # noqa: F401
-        from homestead_health.packs import immunizations  # noqa: F401
-        from homestead_health.reference import SCHEDULE  # noqa: F401
-        from homestead_health.roster import Roster  # noqa: F401
-        print("homestead-health: smoke ok")
+        # **Every module in the package, by name.** The claim on the tin is
+        # "prove every import survived packaging", and a smoke test that imports
+        # four of fifteen modules does not make it: a wheel missing `server`,
+        # `cli`, `doses`, `intake` or `school_form` printed "smoke ok" and
+        # shipped. `tests/test_invariants_smoke.py` scans this branch against
+        # the package's own file list, so a module added without a line here is
+        # a build failure — the list cannot rot quietly.
+        #
+        # Import-only, and that is the whole of it: no module below reads a
+        # clock, touches the household root, or dials on import (I-26/I-17), so
+        # importing them all is exactly as inert as importing one.
+        from homestead_health import _egress
+        from homestead_health import cli
+        from homestead_health import doses
+        from homestead_health import due
+        from homestead_health import emergency
+        from homestead_health import intake
+        from homestead_health import living
+        from homestead_health import nestor_seam
+        from homestead_health import nestor_store
+        from homestead_health import reference
+        from homestead_health import reference_lane
+        from homestead_health import roster
+        from homestead_health import school_form
+        from homestead_health import server
+        from homestead_health.packs import immunizations
+
+        # Bound, not discarded: an import whose name nothing reads is one a
+        # linter offers to delete, and this list is the test.
+        imported = (_egress, cli, doses, due, emergency, intake, living,
+                    nestor_seam, nestor_store, reference, reference_lane,
+                    roster, school_form, server, immunizations)
+        print(f"homestead-health: smoke ok ({len(imported)} modules)")
         return 0
 
     if argv and argv[0] in _CLI_COMMANDS:
