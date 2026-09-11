@@ -412,6 +412,39 @@ def test_i27_every_third_party_import_is_declared():
     )
 
 
+def test_i27_scan_fires_on_a_planted_undeclared_import(tmp_path):
+    """X7-drift-health: `test_i27_every_third_party_import_is_declared` had no
+    plant anywhere in this suite — the exact gap *a scan that has never fired
+    has not been shown to check anything* exists to name. Reproduces the
+    scan's own check over one planted file that imports a package this
+    project neither declares nor ships, and asserts it is named."""
+    dependency_block = re.search(
+        r"^dependencies\s*=\s*\[(.*?)\]",
+        (APP / "pyproject.toml").read_text(encoding="utf-8"),
+        re.MULTILINE | re.DOTALL,
+    )
+    assert dependency_block
+    declared = {
+        m.lower().replace("_", "-")
+        for m in re.findall(r'"([A-Za-z0-9._-]+)', dependency_block.group(1))
+    }
+
+    planted = tmp_path / "planted_undeclared_import.py"
+    planted.write_text("import numpy\n", encoding="utf-8")
+
+    dist_of = md.packages_distributions()
+    offenders: list[str] = []
+    for name in _toplevel_imports(ast.parse(planted.read_text(encoding="utf-8"))):
+        if name in ("homestead", "homestead_health") or name in sys.stdlib_module_names:
+            continue
+        dists = {d.lower().replace("_", "-") for d in dist_of.get(name, [])}
+        if not dists & declared:
+            offenders.append(name)
+    assert offenders == ["numpy"], (
+        f"the scan must catch an undeclared third-party import; got {offenders}"
+    )
+
+
 def test_i28_no_test_basename_is_shadowed():
     """The engine's check, kept for the same reason: a shadowed basename is
     how a suite stops being seen."""
