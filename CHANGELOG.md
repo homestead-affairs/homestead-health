@@ -5,9 +5,8 @@
 
 ### Fixed
 
-* read the living log through the engine's reader so a sealed log refuses instead of answering "never replaced" ([67dc237](https://github.com/homestead-affairs/homestead-health/commit/67dc2376272a1afbf6aa8ead393720c3e1f44b8d))
-* read the living log through the engine's reader so a sealed log refuses instead of answering "never replaced" ([#23](https://github.com/homestead-affairs/homestead-health/issues/23)) ([73126ba](https://github.com/homestead-affairs/homestead-health/commit/73126ba7ec702552007e620f6fbbfdcfdb855743))
 * refuse by name on every unreadable living ledger, not only the sealed one ([011eae9](https://github.com/homestead-affairs/homestead-health/commit/011eae9403ca73990a813b0654886ee6d669049b))
+* read the living log through the engine's reader so a sealed log refuses instead of answering "never replaced" ([67dc237](https://github.com/homestead-affairs/homestead-health/commit/67dc2376272a1afbf6aa8ead393720c3e1f44b8d))
 
 
 ### Build
