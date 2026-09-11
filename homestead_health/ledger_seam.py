@@ -21,7 +21,7 @@ caller of it. This module is not in that package, so this file is the one
 deliberate exception: every other file in `homestead_health` reads ledger
 content through `_ledger_entries()` below, never `._entries` directly and
 never a raw `json.loads` over a `.jsonl` log path
-(`tests/test_ledger_seam.py` scans for both, each proven against a plant).**
+(`tests/test_ledger_seam.py` scans for both, each proven against a plant).~~
 
 **H7-floor-0.12: the engine named this publicly (E7-public-log-reader).**
 0.12.0's `IntegrityLog.read_entries(*, decrypt=True)` is the public door the
@@ -93,6 +93,16 @@ def _ledger_entries(log: IntegrityLog) -> Iterator[dict[str, Any]]:
     becomes `LedgerUnreadable`. A log that does not exist, or one that was
     never written to (no anchor), is not a failure: nothing yielded is the
     true answer "nothing was ever written."
+
+    A surviving log whose *anchor* alone is gone still answers, and that is
+    the engine's rule rather than a choice made here: the anchor is the only
+    witness to a log's length, so with no anchor there is no claim to fall
+    short of and `IntegrityLog._require_whole` returns quietly -- the same
+    posture `verify()` takes for `anchor is None`. The asymmetry with the
+    deleted-*log* case (which does refuse, by `IntegrityIncompleteError`) is
+    deliberate; both are pinned in `tests/test_living_sealed.py`, and the
+    operator's off-machine head (`LivingLane.verify(expected_head)`) is what
+    closes the remaining gap.
     """
     reader = getattr(log, "read_entries", None)
     if not callable(reader):
