@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.2.3](https://github.com/homestead-affairs/homestead-health/compare/v0.2.2...v0.2.3) (2026-09-11)
+
+
+### Fixed
+
+* read the living log through the engine's public reader; a short log refuses ([538160a](https://github.com/homestead-affairs/homestead-health/commit/538160a4dbfc073a410926816790864151219f73))
+* read the living log through the engine's public reader; a short log refuses ([#26](https://github.com/homestead-affairs/homestead-health/issues/26)) ([4e89e34](https://github.com/homestead-affairs/homestead-health/commit/4e89e34fe6812e4fb3825140842927f3e909962f))
+* scope the deprecation filter to the module the warning is filed against ([ad70421](https://github.com/homestead-affairs/homestead-health/commit/ad70421b5f1e39e37c1b1e95adbd4a64be650a6d))
+
+
+### Build
+
+* **deps:** floor homestead-affairs at 0.12.0 ([64394b1](https://github.com/homestead-affairs/homestead-health/commit/64394b1d80b7449160072775893d2178feebde9c))
+
 ## [0.2.2](https://github.com/homestead-affairs/homestead-health/compare/v0.2.1...v0.2.2) (2026-09-11)
 
 
