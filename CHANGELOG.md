@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.2.0](https://github.com/homestead-affairs/homestead-health/compare/v0.1.0...v0.2.0) (2026-09-11)
+
+
+### Added
+
+* dose records a household enters itself, by subject ([589622b](https://github.com/homestead-affairs/homestead-health/commit/589622b9ebbebacfc22b018a83a73edca1271433))
+* dose records a household enters itself, by subject ([#17](https://github.com/homestead-affairs/homestead-health/issues/17)) ([0c6fda9](https://github.com/homestead-affairs/homestead-health/commit/0c6fda9cad086b86a038f4b37fa4e66b93997c52))
+
+
+### Fixed
+
+* answer every refusal instead of dropping the connection ([15bea37](https://github.com/homestead-affairs/homestead-health/commit/15bea371b30a9e21dbeffcca545de3ea150e7b53))
+
 ## [0.1.0](https://github.com/rudi193-cmd/homestead-health/compare/v0.0.1...v0.1.0) (2026-08-18)
 
 
