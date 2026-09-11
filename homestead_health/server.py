@@ -34,6 +34,39 @@ __all__ = ["build_server", "serve"]
 #: name or a pasted clinic card; past it the answer is 413, before a byte is read.
 _MAX_BODY = 1024 * 1024
 
+#: How long a refused request's leftover bytes get to arrive before the
+#: connection is closed anyway.  Short: the client sent them already or never
+#: will; this waits for a segment in flight, not for a slow sender.
+DRAIN_TIMEOUT_SECONDS = 0.2
+
+
+def _drain(sock, *, limit=_MAX_BODY, timeout=DRAIN_TIMEOUT_SECONDS):
+    """Read and discard whatever the client already sent of a body the
+    handler refused to read, so the socket closes with an empty receive
+    buffer.
+
+    Closing a socket that still holds unread bytes makes the kernel answer
+    with a reset instead of an orderly close, and on Windows a reset discards
+    data the peer has received but not yet read — the 400 the client was
+    about to parse (``WinError 10053``, seen on the law module's release PR).
+    ``_discard`` above covers the oversized case, where the length is known;
+    this covers the refusals where it is not.  The bytes are bounded by
+    ``limit`` and the wait by ``timeout``; a slow or silent client is not
+    waited for, and nothing read here is looked at (I-15).  Returns the count
+    discarded.
+    """
+    discarded = 0
+    try:
+        sock.settimeout(timeout)
+        while discarded < limit:
+            chunk = sock.recv(min(65536, limit - discarded))
+            if not chunk:
+                break
+            discarded += len(chunk)
+    except OSError:
+        pass
+    return discarded
+
 
 class _BadBody(Exception):
     """A request body this server answers about instead of dropping the socket.
@@ -713,7 +746,12 @@ def build_server(*, host: str = "127.0.0.1", port: int = 8384):
             try:
                 body = self._body()
             except _BadBody as bad:
-                return self._json({"ok": False, "error": bad.message}, bad.status)
+                # A refused body was not read: drain what arrived before
+                # the connection closes, or the close becomes a reset.
+                self._json({"ok": False, "error": bad.message}, bad.status)
+                self.close_connection = True
+                _drain(self.connection)
+                return
 
             if p == "/api/extract":
                 return self._post_extract(body)
