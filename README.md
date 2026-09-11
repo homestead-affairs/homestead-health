@@ -93,12 +93,45 @@ subject, ever**: the wall against H-2 is structural (there is nowhere to pass a
 child's record, and the module imports nothing that carries one), so retrieval of
 public reference never becomes advice about a person. A source's attribution — a
 CC-BY part included — rides through to every answer that quotes it, and the reader
-dials for nothing. Suite: **128 passed / 0 xfailed**.
+dials for nothing. Suite: green on `pytest -q`, on every leg the optional
+`entity` extra and the engine's `sealed` extra cross (a literal count here goes
+stale the next bite that adds a test, which is why none is pinned).
 
 ```bash
 pip install -e ".[dev]"
 pytest -q          # bare, from a cold checkout. No out-of-band install step.
 ```
+
+## Module status
+
+One row per capability, not per file — several files serve one capability
+(`cli.py`/`server.py` are entry surfaces for more than one row below).
+`tests/test_docs_drift.py`'s scan (a planted omission fails it) checks every
+`homestead_health/*.py` file is named somewhere below, save the three
+package-scaffolding files (`__init__.py`, `__main__.py`,
+`packs/__init__.py`) it excludes by basename.
+
+**Since** is the release the capability first *shipped in*, read off
+`CHANGELOG.md` against the commit that added the file — not the release that
+happened to be current when it was written. The entity seam is the row that
+got this wrong on its first pass: `nestor_seam.py`/`nestor_store.py` landed
+(#7, #9) after `v0.1.0` was cut, so they first shipped in 0.2.0. A second
+guard in the same test file holds every number in this column to a version
+`CHANGELOG.md` actually released.
+
+| Capability | Module(s) | Since |
+|---|---|---|
+| Roster — subject enrolment, opaque ids | `roster.py` | 0.1.0 |
+| Dose records — the immunizations pack, CLI/browser entry, intake, the detail pane | `packs/immunizations.py`, `doses.py`, `intake.py`, `cli.py`, `server.py` | 0.1.0 (pack) / 0.2.0 (household entry) |
+| Due onto Today — the k≥2-gated Today line | `due.py` | 0.1.0 |
+| School-form export — purposed egress to `exports/` | `school_form.py`, `_egress.py` | 0.1.0 |
+| Emergency card — authored, never computed | `emergency.py`, `_egress.py` | 0.1.0 |
+| Reference schedule — the pinned CDC/ACIP snapshot | `reference.py` | 0.1.0 |
+| Reference lane — cited Q&A, no subject | `reference_lane.py` | 0.1.0 |
+| Living lane — the forgetting cell | `living.py` | 0.1.0 |
+| Sealed reader — the living lane's audit read routed through the engine's `IntegrityLog`, refusing on a sealed log without the key | `living.py`, `ledger_seam.py` | 0.2.2 (H6-sealed-reader) |
+| Entity resolution & Nestor ledger check (`entity` extra) | `nestor_seam.py`, `nestor_store.py` | 0.2.0 |
+| Sync | — | **not built.** Health has no sync bite; sync is engine + law/ledger territory (the plan's Wave 4). A household syncs custody and ledger records, never health's. |
 
 ## Entering your own information
 

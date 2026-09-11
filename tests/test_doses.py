@@ -346,7 +346,7 @@ def _record_synced_offenders(root: Path) -> list[str]:
     stop it recursing, and the plant stays green while the guard sees nothing.
     """
     return [
-        f"{p.relative_to(root.parent)}:{i}: {line.strip()}"
+        f"{p.relative_to(root.parent).as_posix()}:{i}: {line.strip()}"
         for p in sorted(root.rglob("*.py"))
         for i, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1)
         if "RECORD_SYNCED" in line

@@ -336,15 +336,21 @@ def test_a_replacement_named_like_a_boundary_act_is_still_found(tmp_path, monkey
     assert lane.replacements(SEAL_BOUNDARY_ACT) == [rows[1]]
 
 
-def test_a_fresh_reader_answers_a_keyed_but_unsealed_log_with_and_without_the_key(
-    tmp_path, monkeypatch
-):
+def test_a_keyed_but_unsealed_log_needs_the_key_to_be_read_at_all(tmp_path, monkeypatch):
     """`LivingLane` builds its own `IntegrityLog` with auto key/seal
-    detection rather than being handed the writer's, and a reader that
-    resolved keying differently would refuse on every keyed log. So: write
-    keyed (never sealed), read through a *fresh* lane, delete the key, read
-    again. A keyed log is plaintext — only sealing makes the key load-bearing
-    for reading."""
+    detection rather than being handed the writer's: write keyed (never
+    sealed), read through a *fresh* lane with the key present, delete the
+    key, read again.
+
+    Before 0.12.0 the second read still succeeded: `_entries()` walked the
+    plaintext content and never checked it against the anchor, so a keyed
+    log's key mattered only for `verify()`. `read_entries()` (E7) checks
+    every read's completeness against the anchor, and that check is itself
+    keyed the moment the anchor is (`IntegrityLog._require_whole`) — so
+    losing the key now costs *readability* too, refusing rather than
+    quietly answering the plaintext prefix. A narrowing the engine's own
+    audit brought, not a line this repo wrote to cause it — pinned here so
+    a green suite says so out loud."""
     monkeypatch.setenv("HOMESTEAD_HOME", str(tmp_path))
     key_path = init_key()
     writer = LivingLane(ledger=IntegrityLog(
@@ -353,10 +359,9 @@ def test_a_fresh_reader_answers_a_keyed_but_unsealed_log_with_and_without_the_ke
     writer.remember("sleep", PRIOR)
     writer.remember("sleep", LATEST)
 
-    assert len(LivingLane().replacements("sleep")) == 1
+    assert len(LivingLane().replacements("sleep")) == 1  # readable while the key is present
 
     key_path.unlink()
-    assert len(LivingLane().replacements("sleep")) == 1, (
-        "a keyed-but-unsealed log is plaintext; losing the key costs verification, "
-        "not readability (E5's posture, unchanged by this fix)"
-    )
+    with pytest.raises(LivingLaneRefused) as excinfo:
+        LivingLane().replacements("sleep")
+    assert isinstance(excinfo.value.__cause__, IntegrityKeyError)

@@ -27,15 +27,17 @@ that a rung was *declared*, not that it was declared *well*: it would accept `L1
 for `vaccine` without a murmur. The advisory content matcher — declared `L3`
 `provider`, content shaped like a *pediatric oncology* clinic, argued **up**, never
 down — is the **intended** guard for the `L3`/`L4` declarations, the same one
-`custody.notes` names. It exists in the engine (`keep/advise`, surfaced by the
-engine's detail pane) but is **not yet wired into this module** — there is no
-immunizations detail pane to host it, matching the engine's own wiring order. Until
-that surface ships, the `provider`/`notes` declarations are as unguarded against
+`custody.notes` names. It exists in the engine (`keep/advise`) but is **not yet
+called from this module** — the records-entry bite gave dose data a detail pane
+after all (`server.py`'s `_get_dose`, `cli.py`'s `dose show`, both at
+`S1_DETAIL`), so a surface to host the matcher is no longer the gap; nothing in
+either pane calls `advise()` over the rendered `provider`/`notes` text yet. Until
+that call is added, the `provider`/`notes` declarations are as unguarded against
 hot content as the field says they otherwise would not be; wiring `advisory_lines`
-is a debt for the detail-pane bite, flagged here so it is not forgotten. No `ssn`,
-no member id, no insurance field lives here: key
-material belongs to the insurance pack when it exists, at `L5`, and importing one
-field of it early would be the two-homes drift the plan's exclusion 3 refuses.
+into the detail pane that now exists is a debt, flagged here so it is not
+forgotten. No `ssn`, no member id, no insurance field lives here: key material
+belongs to the insurance pack when it exists, at `L5`, and importing one field
+of it early would be the two-homes drift the plan's exclusion 3 refuses.
 """
 from __future__ import annotations
 
