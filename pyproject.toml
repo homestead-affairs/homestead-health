@@ -62,7 +62,13 @@ classifiers = [
 # Raised to 0.11.0 (H6-sealed-reader, found by the E6 audit): `living.py` now
 # imports `IntegritySealError`, absent before 0.11.0, so a lagging floor fails
 # at collection rather than at the first sealed household's audit.
-dependencies = ["homestead-affairs>=0.11.0,<1.0"]
+#
+# Raised to 0.12.0 (H7-floor-0.12, E7-public-log-reader): `ledger_seam.py` now
+# calls the engine's public `IntegrityLog.read_entries()` and maps its
+# `IntegrityIncompleteError` (a log shorter than its anchor) to
+# `LedgerUnreadable` — neither name exists before 0.12.0, and the old
+# `_entries()` alias this seam used to reach for is deprecated, gone in 0.13.0.
+dependencies = ["homestead-affairs>=0.12.0,<1.0"]
 
 [project.optional-dependencies]
 # `pyyaml` and `tomli` are for tests/test_invariants_release.py, which reads the
