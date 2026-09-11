@@ -58,6 +58,15 @@ dependencies = ["homestead-affairs>=0.1.0,<0.3"]
 dev = ["pytest>=8.0", "pyyaml", "tomli; python_version<'3.11'"]
 entity = ["nestor-meaning>=0.11.0,<1.0"]
 
+[project.scripts]
+# The command every line of the README's "Entering your own information" recipe
+# begins with, and the one `python -m homestead_health --help` has told the
+# operator to run since the seat landed ("usage: ... homestead-health <command>").
+# It was never declared, so a `pip install homestead-health` gave the operator a
+# package whose own help named a command that did not exist. One name, no
+# collision: the engine declares `homestead-law`, the sibling modules their own.
+homestead-health = "homestead_health.__main__:main"
+
 [project.urls]
 Homepage = "https://github.com/homestead-affairs/homestead-health"
 Repository = "https://github.com/homestead-affairs/homestead-health"
