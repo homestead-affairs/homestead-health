@@ -169,3 +169,157 @@ def test_a_one_child_household_never_renders_a_count(tmp_path, monkeypatch):
     doses.add_dose(store, roster, subject=a, vaccine="MMR", dose_date="2026-08-15", next_due="2026-09-20")
     doses.add_dose(store, roster, subject=a, vaccine="DTaP", dose_date="2026-08-15", next_due="2026-09-21")
     assert doses.today_line(store, roster, today="2026-09-11") is None
+
+
+# ── the W0 audit's additions ────────────────────────────────────────────────
+
+
+def test_a_dose_is_l4_whatever_subset_of_fields_it_carries(household):
+    """I-12, exhaustively: `compose()` runs over the fields *given*, and the one
+    that is never optional is `vaccine` (L4). So there is no combination of
+    optional fields — none given, all given, any subset — that stores a dose
+    below L4, and therefore none that renders a vaccine or a dose date on a list
+    surface. Asserted over the whole power set rather than one happy case,
+    because the failure mode is a *particular* subset (say: vaccine plus a lone
+    L2 lot number) composing lower than the others.
+    """
+    import itertools
+
+    store, roster, a, _ = household
+    optional = {"provider": "Dr. Lee", "lot_number": "AB12",
+                "source": "clinic card", "notes": "cried a little"}
+    for size in range(len(optional) + 1):
+        for combo in itertools.combinations(sorted(optional), size):
+            ref = doses.add_dose(store, roster, subject=a, vaccine="MMR",
+                                 dose_date="2026-08-15",
+                                 **{k: optional[k] for k in combo})
+            record = store.get(doses.MATTER, doses.DOSE_ITEM, ref.id)
+            assert record.rung is Rung.L4, f"{combo} composed to {record.rung}"
+            assert serve(record, Surface.S1_LIST).disposition is Disposition.DERIVE
+
+
+def test_a_list_row_is_the_derived_sentence_even_for_a_record_that_would_render():
+    """The list pane refuses to print a payload, and that is not the same claim
+    as "a dose is always L4".
+
+    A dose written by `add_dose` composes to L4 and the gate derives it. But a
+    *record* is a file on disk: a hand-edit, a half-restored tree, or a future
+    writer that skips `add_dose` can leave a dose-shaped record at L2 — and L2
+    RENDERs on a list surface. The surfaces printed `str(Served.value)`
+    unconditionally, so such a record put the vaccine, the dose date, the
+    provider and the operator's notes on an ambient row beside the subject id:
+    exactly what the pack's `dose_date` declaration promises cannot happen.
+
+    The violation is planted here as the record itself, because that is the only
+    way in.
+    """
+    from homestead.keep.rungs import Classified
+
+    planted = Classified(Rung.L2, {"subject": "subj-01", "vaccine": "MMR",
+                                   "dose_date": "2026-08-15",
+                                   "notes": "cried a little"})
+    assert serve(planted, Surface.S1_LIST).disposition is Disposition.RENDER, (
+        "the plant must be a record the gate would render on a list — otherwise "
+        "this test passes for the wrong reason"
+    )
+
+    rung, text = doses.list_row(planted)
+    assert rung is Rung.L2                      # the row still tells the truth
+    assert text == doses.DERIVED
+    for leaked in ("MMR", "2026-08-15", "cried"):
+        assert leaked not in text
+
+
+def test_a_list_row_for_a_denied_record_is_nothing_at_all(household):
+    """`L5` (and a rung that did not survive at all) is dropped, with no count
+    left behind — `serve_all`'s discipline, one record at a time."""
+    from homestead.keep.rungs import Classified
+
+    assert doses.list_row(Classified(Rung.L5, {"vaccine": "MMR"})) is None
+
+
+def test_next_due_text_is_a_date_or_nothing():
+    """The L2 date renders on the list; anything that does not render there is
+    not a date and does not go where a date goes."""
+    from homestead.keep.rungs import Classified
+
+    assert doses.next_due_text(Classified(Rung.L2, "2026-09-20")) == "2026-09-20"
+    assert doses.next_due_text(
+        Classified(Rung.L4, "2026-09-20", derived="A date is on file")) is None
+    assert doses.next_due_text(Classified(Rung.L5, "2026-09-20")) is None
+
+
+def test_the_derived_sentence_has_no_slot_to_advise_or_to_leak_through(household):
+    """H-2's structural half, on the dose surface.
+
+    `due.DERIVED` is a closed vocabulary parameterised by a count; the dose's
+    own ambient sentence is parameterised by **nothing**. No format field, no
+    percent slot, no digit — so there is no code path that can compose *"due for
+    a booster"* onto a list row, and no way for a vaccine name or a date to be
+    interpolated into it. `list_row` returns the constant itself, for every dose
+    there can be, which is the same claim made behaviourally.
+    """
+    import string
+
+    assert not [f for _, f, _, _ in string.Formatter().parse(doses.DERIVED) if f]
+    assert "%" not in doses.DERIVED
+    assert not any(ch.isdigit() for ch in doses.DERIVED)
+
+    store, roster, a, _ = household
+    for vaccine, note in (("MMR", "cried"), ("HPV", "second of two"), ("Tdap", "")):
+        ref = doses.add_dose(store, roster, subject=a, vaccine=vaccine,
+                             dose_date="2026-08-15", notes=note or None)
+        _, text = doses.list_row(store.get(doses.MATTER, doses.DOSE_ITEM, ref.id))
+        assert text == doses.DERIVED
+
+
+def test_a_raced_id_is_refused_by_the_store_and_nothing_is_written(household, monkeypatch):
+    """Two processes adding a dose for the same subject can both count `NN` from
+    disk before either writes — a TOCTOU the counter cannot close from here.
+
+    The store closes it: `put` is `O_EXCL` and refuses an occupied key (I-9), so
+    the loser gets `FileExistsError` and **writes nothing** — not the dose, and
+    not the next-due record beside it. The id is not burned either, because the
+    next call recounts. The race is planted by pinning the counter, which is
+    precisely what the losing process has: a stale count.
+    """
+    store, roster, a, _ = household
+    winner = doses.add_dose(store, roster, subject=a, vaccine="MMR",
+                            dose_date="2026-08-15", next_due="2026-09-20")
+
+    recount = doses._next_number
+    monkeypatch.setattr(doses, "_next_number", lambda store, sid: 1)
+    with pytest.raises(FileExistsError):
+        doses.add_dose(store, roster, subject=a, vaccine="DTaP",
+                       dose_date="2026-08-16", next_due="2026-09-05")
+
+    # The winner's record is untouched and the loser left nothing behind.
+    assert [r.id for r, _ in doses.doses_of(store, a)] == [winner.id]
+    kept = serve(store.get(doses.MATTER, doses.DOSE_ITEM, winner.id), Surface.S1_DETAIL)
+    assert kept.value["vaccine"] == "MMR"
+    assert [doses.next_due_text(rec) for _, rec in doses.next_due_of(store, a)] == ["2026-09-20"]
+
+    # And the id is not burned: recounting hands out the next one. (Restored by
+    # name, not by `monkeypatch.undo()` — that would also undo the fixture's
+    # HOMESTEAD_HOME and point the rest of this test at a real household root.)
+    monkeypatch.setattr(doses, "_next_number", recount)
+    assert doses.add_dose(store, roster, subject=a, vaccine="DTaP",
+                          dose_date="2026-08-16").id == "subj-01-02"
+
+
+def test_a_malformed_subject_is_refused_as_export_refused_not_a_value_error(household):
+    """`_egress.validate_subject` is the module's one subject validator, and it
+    raises `ExportRefused` — a `PermissionError`, *not* a `ValueError`. Both
+    surfaces caught `ValueError` only, so the likeliest operator mistake of all
+    — typing the person's name where the opaque id goes — came back as a
+    traceback that then echoed the name. The type is asserted here so a surface
+    knows what it must catch."""
+    from homestead.keep.export import ExportRefused
+
+    store, roster, a, _ = household
+    for bad in ("Mara Chen", "subj-01\nFORGED", "../subj-01", None, "   "):
+        with pytest.raises(ExportRefused) as caught:
+            doses.add_dose(store, roster, subject=bad, vaccine="MMR",
+                           dose_date="2026-08-15")
+        assert not isinstance(caught.value, ValueError)
+    assert store.records(doses.MATTER) == []

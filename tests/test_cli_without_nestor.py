@@ -111,3 +111,87 @@ def test_nestor_backed_commands_refuse_in_one_line_naming_the_extra(argv, capsys
     captured = capsys.readouterr()
     assert "homestead-health[entity]" in captured.err
     assert "Traceback" not in captured.err
+
+
+# ── the W0 audit's additions ────────────────────────────────────────────────
+
+
+def test_typing_a_name_where_the_subject_id_goes_is_one_line_not_a_traceback(capsys):
+    """The likeliest mistake at this prompt, and the worst failure for it.
+
+    `_egress.validate_subject` raises `ExportRefused` — a `PermissionError`, not
+    a `ValueError` — so `dose add "Mara Chen" MMR 2026-08-15` came back as a
+    fourteen-frame traceback whose last line echoed the name that was typed.
+    A refusal is a sentence, and it says where the id comes from.
+    """
+    run_cli(["roster", "add", "Mara", "Chen", "--minor"])
+    capsys.readouterr()
+    assert run_cli(["dose", "add", "Mara Chen", "MMR", "2026-08-15"]) == 1
+    err = capsys.readouterr().err
+    assert "Traceback" not in err
+    assert "refused" in err and "roster list" in err
+
+
+def test_a_raced_dose_id_is_a_sentence_not_a_traceback(capsys, monkeypatch):
+    """Two processes adding a dose for the same subject race on the counter; the
+    store refuses the loser with `FileExistsError` (I-9), which is an `OSError`
+    and so slipped past the `ValueError` catch. The operator is told nothing was
+    stored and to run it again — never a stack."""
+    from homestead_health import doses
+
+    run_cli(["roster", "add", "Mara", "--minor"])
+    run_cli(["dose", "add", "subj-01", "MMR", "2026-08-15"])
+    capsys.readouterr()
+
+    monkeypatch.setattr(doses, "_next_number", lambda store, sid: 1)
+    assert run_cli(["dose", "add", "subj-01", "DTaP", "2026-08-16"]) == 1
+    err = capsys.readouterr().err
+    assert "Traceback" not in err
+    assert "Nothing was stored" in err and "again" in err
+
+
+def test_a_forgotten_flag_is_refused_rather_than_silently_dropped(capsys):
+    """`dose add subj-01 MMR 2026-08-15 2026-09-20` — `--next-due` forgotten —
+    used to record the dose with **no next-due date at all** and report success.
+    A dropped fact reported as a success is the shape H-4 refuses; the extra
+    positional is now the usage message."""
+    run_cli(["roster", "add", "Mara", "--minor"])
+    capsys.readouterr()
+    assert run_cli(["dose", "add", "subj-01", "MMR", "2026-08-15", "2026-09-20"]) == 1
+    assert "named flag" in capsys.readouterr().err
+    assert run_cli(["dose", "list", "subj-01"]) == 0
+    assert "no doses on file" in capsys.readouterr().out
+
+
+def test_today_refuses_a_date_it_cannot_read(capsys):
+    """`--today garbage` reached the engine's strict parser and came back out of
+    the CLI as a traceback. The engine does not guess at a date (BUG-1) and
+    neither does the surface that asked it."""
+    assert run_cli(["today", "--today", "garbage"]) == 1
+    err = capsys.readouterr().err
+    assert "refused" in err and "Traceback" not in err
+
+
+def test_a_dose_list_never_carries_the_vaccine_even_for_a_planted_record(capsys, tmp_path):
+    """The CLI list pane, against the record the gate *would* render.
+
+    A dose-shaped record left at L2 by a hand-edit renders on a list surface,
+    and the pane printed `Served.value` whatever it was — the whole payload
+    beside the subject id. Planted directly in the store, which is the only way
+    such a record can exist.
+    """
+    from homestead.keep.record import Sidecar
+    from homestead.keep.rungs import Classified, Rung
+
+    from homestead_health import doses
+
+    run_cli(["roster", "add", "Mara", "--minor"])
+    capsys.readouterr()
+    Sidecar().put(doses.MATTER, doses.DOSE_ITEM, "subj-01-01",
+                  Classified(Rung.L2, {"subject": "subj-01", "vaccine": "MMR",
+                                       "dose_date": "2026-08-15"}))
+
+    assert run_cli(["dose", "list", "subj-01"]) == 0
+    out = capsys.readouterr().out
+    assert "An immunization dose is on file" in out
+    assert "MMR" not in out and "2026-08-15" not in out
